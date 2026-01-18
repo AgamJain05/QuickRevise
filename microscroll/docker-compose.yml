@@ -1,0 +1,41 @@
+version: '3.8'
+
+# ===========================================
+# MicroScroll Docker Services
+# ===========================================
+# Note: PostgreSQL is hosted on Supabase
+# This file only contains optional local services
+
+services:
+  # Redis (optional - for caching and job queues)
+  redis:
+    image: redis:7-alpine
+    container_name: microscroll-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis_data:
+
+# ===========================================
+# Database: Supabase PostgreSQL (Cloud)
+# ===========================================
+# 
+# Setup Instructions:
+# 1. Go to https://supabase.com and create a new project
+# 2. Get your connection strings from:
+#    Project Settings > Database > Connection string
+# 3. Copy the strings to your .env file:
+#    - DATABASE_URL: Transaction mode (port 6543) with ?pgbouncer=true
+#    - DIRECT_URL: Session mode (port 5432)
+# 4. Run: cd server && npx prisma db push
+#
+# ===========================================

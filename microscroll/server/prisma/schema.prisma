@@ -1,0 +1,205 @@
+// Prisma Schema for MicroScroll
+// Database: Supabase PostgreSQL
+// Run: npx prisma generate
+// Run: npx prisma db push (development)
+// Run: npx prisma migrate dev (production)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") // Required for Supabase (bypasses connection pooler)
+}
+
+// ============================================
+// User & Authentication
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String?
+  avatarUrl     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  decks         Deck[]
+  cardProgress  CardProgress[]
+  studySessions StudySession[]
+  settings      UserSettings?
+  refreshTokens RefreshToken[]
+
+  @@index([email])
+}
+
+model RefreshToken {
+  id          String   @id @default(cuid())
+  token       String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
+}
+
+model UserSettings {
+  id              String  @id @default(cuid())
+  theme           String  @default("system") // light, dark, system
+  dailyGoal       Int     @default(20) // cards per day
+  soundEnabled    Boolean @default(true)
+  hapticsEnabled  Boolean @default(true)
+  autoPlayEnabled Boolean @default(false)
+  
+  userId          String  @unique
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// Content - Decks & Cards
+// ============================================
+
+model Deck {
+  id            String    @id @default(cuid())
+  title         String
+  description   String?
+  emoji         String    @default("📚")
+  colorTheme    String    @default("blue") // blue, purple, green, orange, pink
+  sourceType    String    // text, pdf, docx, pptx, url
+  sourceName    String?   // original filename or URL
+  sourceSize    Int?      // file size in bytes
+  isPublic      Boolean   @default(false)
+  totalCards    Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cards         Card[]
+  tags          DeckTag[]
+  studySessions StudySession[]
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Card {
+  id              String   @id @default(cuid())
+  headline        String   // Main concept title
+  detailParagraph String   @db.Text // Detailed explanation
+  bulletPoints    String[] // Key points as array
+  emoji           String   @default("📝")
+  difficulty      String   @default("medium") // easy, medium, hard
+  ghostWords      String[] // Words to hide for active recall
+  eli5Version     String?  @db.Text // Simplified explanation
+  quizQuestion    String?  // True/False question
+  quizAnswer      Boolean? // True or False
+  order           Int      // Position in deck
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  deckId          String
+  deck            Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  progress        CardProgress[]
+
+  @@index([deckId])
+  @@index([order])
+}
+
+model Tag {
+  id    String    @id @default(cuid())
+  name  String    @unique
+  color String    @default("#6366f1")
+  decks DeckTag[]
+
+  @@index([name])
+}
+
+model DeckTag {
+  deckId String
+  tagId  String
+  deck   Deck   @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([deckId, tagId])
+}
+
+// ============================================
+// Progress & Analytics
+// ============================================
+
+model CardProgress {
+  id              String    @id @default(cuid())
+  reviewCount     Int       @default(0)
+  correctCount    Int       @default(0)
+  incorrectCount  Int       @default(0)
+  masteryLevel    Float     @default(0) // 0-100
+  easeFactor      Float     @default(2.5) // SM-2 algorithm
+  interval        Int       @default(0) // days until next review
+  lastReviewed    DateTime?
+  nextReviewDate  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  cardId          String
+  card            Card      @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, userId])
+  @@index([userId])
+  @@index([nextReviewDate])
+}
+
+model StudySession {
+  id              String   @id @default(cuid())
+  mode            String   // normal, speed, ghost
+  cardsStudied    Int      @default(0)
+  correctAnswers  Int      @default(0)
+  totalTime       Int      @default(0) // seconds
+  streak          Int      @default(0)
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+
+  // Relations
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deckId          String
+  deck            Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([deckId])
+  @@index([startedAt])
+}
+
+// ============================================
+// File Processing Queue
+// ============================================
+
+model ProcessingJob {
+  id          String   @id @default(cuid())
+  status      String   @default("pending") // pending, processing, completed, failed
+  step        String   @default("upload") // upload, parsing, chunking, generating
+  progress    Int      @default(0) // 0-100
+  error       String?
+  filePath    String?
+  fileName    String?
+  fileType    String?
+  resultDeckId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  userId      String
+
+  @@index([userId])
+  @@index([status])
+}

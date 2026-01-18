@@ -1,0 +1,26 @@
+{
+  "name": "microscroll",
+  "private": true,
+  "version": "1.0.0",
+  "description": "MicroScroll - AI-powered microlearning platform",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "cd client && npm run dev",
+    "dev:server": "cd server && npm run dev",
+    "build": "npm run sync-types && npm run build:client && npm run build:server",
+    "build:client": "cd client && npm run build",
+    "build:server": "cd server && npm run build",
+    "start": "cd server && npm start",
+    "db:push": "cd server && npx prisma db push",
+    "db:migrate": "cd server && npx prisma migrate dev",
+    "db:studio": "cd server && npx prisma studio",
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install",
+    "sync-types": "node -e \"const fs=require('fs');const src=fs.readFileSync('shared/types/index.ts','utf8');fs.writeFileSync('client/src/types/shared.ts',src);fs.writeFileSync('server/src/types/shared.ts',src);console.log('✅ Types synced')\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
