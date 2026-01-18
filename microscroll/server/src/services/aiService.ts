@@ -171,7 +171,13 @@ Generate micro-learning cards. Remember: MORE cards with LESS content each. Targ
     throw new Error(`Gemini API error: ${response.status}`);
   }
 
-  const data = await response.json();
+  const data = await response.json() as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{ text?: string }>;
+      };
+    }>;
+  };
   const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
   try {
