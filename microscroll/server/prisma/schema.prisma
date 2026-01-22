@@ -27,6 +27,19 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  // Security - Account Lockout
+  failedLoginAttempts Int       @default(0)
+  lockoutUntil        DateTime?
+  
+  // Email Verification
+  emailVerified           Boolean   @default(false)
+  emailVerificationToken  String?
+  emailVerificationExpires DateTime?
+  
+  // Password Reset
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+
   // Relations
   decks         Deck[]
   cardProgress  CardProgress[]
@@ -35,6 +48,8 @@ model User {
   refreshTokens RefreshToken[]
 
   @@index([email])
+  @@index([emailVerificationToken])
+  @@index([passwordResetToken])
 }
 
 model RefreshToken {
@@ -50,15 +65,20 @@ model RefreshToken {
 }
 
 model UserSettings {
-  id              String  @id @default(cuid())
-  theme           String  @default("system") // light, dark, system
-  dailyGoal       Int     @default(20) // cards per day
-  soundEnabled    Boolean @default(true)
-  hapticsEnabled  Boolean @default(true)
-  autoPlayEnabled Boolean @default(false)
+  id              String    @id @default(cuid())
+  theme           String    @default("system") // light, dark, system
+  dailyGoal       Int       @default(20) // cards per day
+  soundEnabled    Boolean   @default(true)
+  hapticsEnabled  Boolean   @default(true)
+  autoPlayEnabled Boolean   @default(false)
   
-  userId          String  @unique
-  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Streak tracking
+  currentStreak   Int       @default(0)
+  longestStreak   Int       @default(0)
+  lastActiveDate  DateTime?
+  
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // ============================================
