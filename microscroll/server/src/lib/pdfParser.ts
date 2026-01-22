@@ -33,7 +33,7 @@ export async function parsePDF(dataBuffer: Buffer): Promise<PDFData> {
     
     // Call the parser with options to skip problematic features
     console.log('📘 [pdfParser.parsePDF] Calling parser...');
-    const data = await parser(dataBuffer, {
+    const data = await (parser as (buffer: Buffer, options?: { max?: number }) => Promise<{ text: string; numpages: number; numrender: number; info: Record<string, unknown> }>)(dataBuffer, {
       // Limit pages to prevent timeout on large PDFs
       max: 50,
     });

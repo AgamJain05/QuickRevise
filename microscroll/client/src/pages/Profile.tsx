@@ -94,10 +94,13 @@ export default function Profile() {
           id: d.id,
           title: d.title,
           description: d.description || '',
-          emoji: d.emoji,
-          cards: [],
+          tags: [],
+          cardCount: d.totalCards,
           createdAt: new Date(d.createdAt),
           updatedAt: new Date(d.updatedAt),
+          sourceType: (d.sourceType as 'text' | 'pdf' | 'docx' | 'url' | 'pptx') || 'text',
+          sourceName: d.sourceName || undefined,
+          colorTheme: d.colorTheme,
         })))
         
         // Build weekly data from API

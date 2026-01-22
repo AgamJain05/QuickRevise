@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
-import { getAllDecks, deleteDeck as deleteLocalDeck, getStudyStats, type Deck as LocalDeck } from '../lib/storage'
+import { getAllDecks, deleteDeck as deleteLocalDeck, getStudyStats } from '../lib/storage'
 import Card from '../components/Card'
 
 interface DeckDisplay {
@@ -76,9 +76,9 @@ export default function Library() {
         setDecks(decksData.map(d => ({
           id: d.id,
           title: d.title,
-          emoji: d.emoji,
+          emoji: '📚',
           colorTheme: d.colorTheme,
-          cardCount: d.cards?.length || 0,
+          cardCount: d.cardCount,
           createdAt: d.createdAt,
           tags: d.tags || [],
           sourceName: d.sourceName,
@@ -98,9 +98,9 @@ export default function Library() {
         setDecks(decksData.map(d => ({
           id: d.id,
           title: d.title,
-          emoji: d.emoji,
+          emoji: '📚',
           colorTheme: d.colorTheme,
-          cardCount: d.cards?.length || 0,
+          cardCount: d.cardCount,
           createdAt: d.createdAt,
           tags: d.tags || [],
           sourceName: d.sourceName,

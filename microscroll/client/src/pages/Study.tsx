@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { api, Card as ApiCard } from '../lib/api'
-import { getDeck, getCardsForDeck, updateCardProgress, getCardProgress, type Deck, type StoredCard } from '../lib/storage'
+import { api } from '../lib/api'
+import { getDeck, getCardsForDeck, updateCardProgress, getCardProgress } from '../lib/storage'
 import StudyFeed from '../components/StudyFeed'
 
 // Unified card type for the component
@@ -14,8 +14,11 @@ interface DisplayCard {
   difficulty: 'easy' | 'medium' | 'hard'
   ghostWords: string[]
   eli5Version?: string | null
-  quizQuestion?: string | null
-  quizAnswer?: boolean | null
+  quizQuestion?: string | {
+    question: string
+    correctAnswer: boolean
+    explanation: string
+  } | null
   order: number
 }
 
@@ -77,8 +80,7 @@ export default function Study() {
           difficulty: c.difficulty,
           ghostWords: c.ghostWords,
           eli5Version: c.eli5Version,
-          quizQuestion: c.quizQuestion,
-          quizAnswer: c.quizAnswer,
+          quizQuestion: c.quizQuestion || null,
           order: c.order,
         })))
 
@@ -112,8 +114,7 @@ export default function Study() {
           difficulty: c.difficulty,
           ghostWords: c.ghostWords || [],
           eli5Version: c.eli5Version,
-          quizQuestion: c.quizQuestion,
-          quizAnswer: c.quizAnswer,
+          quizQuestion: c.quizQuestion || null,
           order: c.order,
         })))
       }
@@ -136,8 +137,7 @@ export default function Study() {
             difficulty: c.difficulty,
             ghostWords: c.ghostWords || [],
             eli5Version: c.eli5Version,
-            quizQuestion: c.quizQuestion,
-            quizAnswer: c.quizAnswer,
+            quizQuestion: c.quizQuestion || null,
             order: c.order,
           })))
         } else {
