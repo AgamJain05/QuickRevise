@@ -1,7 +1,10 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { initDB } from './lib/storage'
+import { api } from './lib/api'
 import Onboarding from './pages/Onboarding'
+import Auth from './pages/Auth'
+import AuthCallback from './pages/AuthCallback'
 import Create from './pages/Create'
 import Processing from './pages/Processing'
 import Home from './pages/Home'
@@ -10,13 +13,23 @@ import Library from './pages/Library'
 import Profile from './pages/Profile'
 import SpeedRevision from './pages/SpeedRevision'
 import DeckEditor from './pages/DeckEditor'
+import Membership from './pages/Membership'
 import Layout from './components/Layout'
+
+// Protected route wrapper - redirects to auth if not logged in
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  if (!api.auth.isAuthenticated()) {
+    return <Navigate to="/auth" replace />
+  }
+  return <>{children}</>
+}
 
 function App() {
   const [hasOnboarded, setHasOnboarded] = useState(() => {
     return localStorage.getItem('microscroll_onboarded') === 'true'
   })
   const [dbReady, setDbReady] = useState(false)
+  const isAuthenticated = api.auth.isAuthenticated()
 
   // Initialize database on app start
   useEffect(() => {
@@ -52,32 +65,48 @@ function App() {
           path="/onboarding" 
           element={
             hasOnboarded 
-              ? <Navigate to="/" replace /> 
+              ? (isAuthenticated ? <Navigate to="/" replace /> : <Navigate to="/auth" replace />)
               : <Onboarding onComplete={completeOnboarding} />
           } 
         />
         
-        {/* Main app with bottom nav */}
+        {/* Authentication - redirect to home if already logged in */}
+        <Route 
+          path="/auth" 
+          element={
+            isAuthenticated 
+              ? <Navigate to="/" replace /> 
+              : <Auth />
+          } 
+        />
+        
+        {/* OAuth callback - handles token from Google */}
+        <Route path="/auth/callback" element={<AuthCallback />} />
+        
+        {/* Main app with bottom nav - Protected routes */}
         <Route element={<Layout />}>
           <Route 
             path="/" 
             element={
-              hasOnboarded 
-                ? <Home /> 
-                : <Navigate to="/onboarding" replace />
+              !hasOnboarded 
+                ? <Navigate to="/onboarding" replace />
+                : !isAuthenticated
+                ? <Navigate to="/auth" replace />
+                : <Home />
             } 
           />
-          <Route path="/create" element={<Create />} />
-          <Route path="/library" element={<Library />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/explore" element={<ExplorePlaceholder />} />
+          <Route path="/create" element={<ProtectedRoute><Create /></ProtectedRoute>} />
+          <Route path="/library" element={<ProtectedRoute><Library /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/explore" element={<ProtectedRoute><ExplorePlaceholder /></ProtectedRoute>} />
         </Route>
         
-        {/* Full-screen routes (no nav) */}
-        <Route path="/processing" element={<Processing />} />
-        <Route path="/study/:deckId" element={<Study />} />
-        <Route path="/speed/:deckId" element={<SpeedRevision />} />
-        <Route path="/edit/:deckId" element={<DeckEditor />} />
+        {/* Full-screen routes (no nav) - Protected */}
+        <Route path="/processing" element={<ProtectedRoute><Processing /></ProtectedRoute>} />
+        <Route path="/study/:deckId" element={<ProtectedRoute><Study /></ProtectedRoute>} />
+        <Route path="/speed/:deckId" element={<ProtectedRoute><SpeedRevision /></ProtectedRoute>} />
+        <Route path="/edit/:deckId" element={<ProtectedRoute><DeckEditor /></ProtectedRoute>} />
+        <Route path="/membership" element={<ProtectedRoute><Membership /></ProtectedRoute>} />
         
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />

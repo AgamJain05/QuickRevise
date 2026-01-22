@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { api } from '../lib/api'
 import { processContent, type ProcessingStatus } from '../lib/fileProcessor'
 import { initDB } from '../lib/storage'
+import { incrementUsageCount } from '../lib/usageLimit'
 
 interface ProcessingStep {
   id: string
@@ -49,38 +51,225 @@ export default function Processing() {
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
+  const processingStarted = useRef(false)
 
   // Get content from navigation state or sessionStorage
-  const getContent = () => {
+  const getContent = (): { text?: string; file?: File; title?: string } | null => {
+    console.log('📦 [Processing.getContent] Checking for content')
+    console.log('📦 [Processing.getContent] location.state?.content:', location.state?.content ? 'EXISTS' : 'UNDEFINED')
+    
     // Try navigation state first
     if (location.state?.content) {
+      console.log('📦 [Processing.getContent] Found content in location.state')
       return location.state.content
     }
     
-    // Fall back to sessionStorage
+    // Fall back to sessionStorage for text
     const stored = sessionStorage.getItem('microscroll_content')
+    console.log('📦 [Processing.getContent] sessionStorage content:', stored ? 'EXISTS' : 'NULL')
+    
     if (stored) {
+      console.log('📦 [Processing.getContent] Parsing sessionStorage content')
       return JSON.parse(stored)
     }
     
+    console.log('📦 [Processing.getContent] No content found')
     return null
   }
 
-  useEffect(() => {
-    const content = getContent()
+  // Get file from location state (can't be stored in sessionStorage)
+  const getFile = (): File | null => {
+    console.log('📦 [Processing.getFile] Checking for file')
+    console.log('📦 [Processing.getFile] location.state?.file:', location.state?.file ? 'EXISTS' : 'UNDEFINED')
     
-    if (!content) {
+    const file = location.state?.file || null
+    if (file) {
+      console.log('📦 [Processing.getFile] File found:', file.name, file.size, file.type)
+    } else {
+      console.log('📦 [Processing.getFile] No file found')
+    }
+    
+    return file
+  }
+
+  useEffect(() => {
+    console.log('📦 [Processing] useEffect triggered')
+    console.log('📦 [Processing] processingStarted.current:', processingStarted.current)
+    console.log('📦 [Processing] location.state:', location.state)
+    
+    if (processingStarted.current) {
+      console.log('📦 [Processing] Already started, skipping')
+      return
+    }
+    processingStarted.current = true
+
+    const content = getContent()
+    const file = getFile()
+    
+    console.log('📦 [Processing] getContent() returned:', content ? { title: content.title, hasText: !!content.text, textLength: content.text?.length } : 'null')
+    console.log('📦 [Processing] getFile() returned:', file ? { name: file.name, size: file.size, type: file.type } : 'null')
+    
+    if (!content && !file) {
+      console.log('📦 [Processing] No content and no file, navigating to /create')
       navigate('/create')
       return
     }
 
-    startProcessing(content)
+    console.log('📦 [Processing] Starting processing...')
+    startProcessing(content, file)
   }, [])
 
-  const startProcessing = async (content: { text?: string; file?: File; url?: string }) => {
-    if (isProcessing) return
+  const updateStep = (stepId: string, status: 'pending' | 'active' | 'complete' | 'error', description?: string) => {
+    setSteps(prev => prev.map(step => {
+      if (step.id === stepId) {
+        return { ...step, status, description: description || step.description }
+      }
+      // Mark previous steps as complete
+      const stepOrder = ['reading', 'chunking', 'summarizing', 'designing']
+      const currentStepIndex = stepOrder.indexOf(stepId)
+      const thisStepIndex = stepOrder.indexOf(step.id)
+      
+      if (thisStepIndex < currentStepIndex && step.status !== 'complete') {
+        return { ...step, status: 'complete' as const }
+      }
+      
+      return step
+    }))
+  }
+
+  const startProcessing = async (content: { text?: string; title?: string } | null, file: File | null) => {
+    console.log('📦 [Processing] startProcessing called')
+    console.log('📦 [Processing] content:', content ? { ...content, text: content.text?.slice(0, 100) + '...' } : null)
+    console.log('📦 [Processing] file:', file?.name, file?.size, file?.type)
+    
+    if (isProcessing) {
+      console.log('📦 [Processing] Already processing, skipping')
+      return
+    }
     setIsProcessing(true)
 
+    const isAuthenticated = api.auth.isAuthenticated()
+    console.log('📦 [Processing] isAuthenticated:', isAuthenticated)
+    console.log('📦 [Processing] Token:', api.tokens.get().accessToken ? 'EXISTS' : 'MISSING')
+    
+    if (isAuthenticated) {
+      console.log('📦 [Processing] Using BACKEND API')
+      // Use backend API for processing
+      await processWithBackend(content, file)
+    } else {
+      console.log('📦 [Processing] Using LOCAL processing (offline mode)')
+      
+      // Check if trying to upload a file without auth - files require backend
+      if (file && !content?.text) {
+        console.log('📦 [Processing] ERROR: Cannot process files without authentication')
+        setError('Please log in to upload files. PDF, DOCX, and PPTX files require server-side processing.')
+        setSteps(prev => prev.map(step => 
+          step.id === 'reading' 
+            ? { ...step, status: 'error' as const, description: 'Login required for file uploads' }
+            : step
+        ))
+        return
+      }
+      
+      // Fallback to client-side processing (offline mode) - only for text
+      await processLocally(content)
+    }
+  }
+
+  // Process using backend API
+  const processWithBackend = async (content: { text?: string; title?: string } | null, file: File | null) => {
+    console.log('🔥 [Backend] processWithBackend started')
+    console.log('🔥 [Backend] file:', file ? { name: file.name, size: file.size, type: file.type } : 'NO FILE')
+    console.log('🔥 [Backend] content:', content ? { title: content.title, textLength: content.text?.length } : 'NO CONTENT')
+    
+    try {
+      // Step 1: Reading/Uploading
+      updateStep('reading', 'active', 'Uploading content...')
+      setProgress(10)
+
+      let result: { job: any; deck: any }
+
+      if (file) {
+        console.log('🔥 [Backend] Uploading FILE to backend...')
+        // Upload file to backend
+        updateStep('reading', 'active', `Parsing ${file.name}...`)
+        setProgress(20)
+        
+        console.log('🔥 [Backend] Calling api.process.uploadFile...')
+        result = await api.process.uploadFile(file, content?.title)
+        console.log('🔥 [Backend] uploadFile result:', result)
+      } else if (content?.text) {
+        console.log('🔥 [Backend] Processing TEXT content...')
+        // Process text
+        updateStep('reading', 'active', 'Processing text content...')
+        setProgress(20)
+        
+        const title = content.title || 'Study Notes'
+        console.log('🔥 [Backend] Calling api.process.processText with title:', title)
+        result = await api.process.processText(content.text, title)
+        console.log('🔥 [Backend] processText result:', result)
+      } else {
+        console.error('🔥 [Backend] ERROR: No content to process!')
+        throw new Error('No content to process')
+      }
+
+      console.log('🔥 [Backend] Processing complete, result:', result)
+
+      // Step 2: Chunking (simulated - happens on server)
+      updateStep('chunking', 'active', 'Breaking down complex topics...')
+      setProgress(40)
+      await new Promise(r => setTimeout(r, 500))
+
+      // Step 3: Summarizing
+      updateStep('summarizing', 'active', 'AI is generating cards...')
+      setProgress(60)
+      await new Promise(r => setTimeout(r, 500))
+
+      // Step 4: Designing
+      updateStep('designing', 'active', 'Finalizing your deck...')
+      setProgress(80)
+      await new Promise(r => setTimeout(r, 500))
+
+      // Complete
+      setProgress(100)
+      setSteps(prev => prev.map(step => ({ ...step, status: 'complete' as const })))
+
+      // Increment usage count on successful generation
+      incrementUsageCount()
+      console.log('🔥 [Backend] Usage count incremented')
+
+      // Clean up
+      sessionStorage.removeItem('microscroll_content')
+
+      console.log('🔥 [Backend] Navigating to study page for deck:', result.deck.id)
+
+      // Navigate to study page (replace to prevent going back to processing)
+      setTimeout(() => {
+        navigate(`/study/${result.deck.id}`, { 
+          replace: true,
+          state: { 
+            isNew: true,
+            cardCount: result.deck.totalCards || 0,
+          } 
+        })
+      }, 1000)
+
+    } catch (err) {
+      console.error('🔥 [Backend] ERROR:', err)
+      console.error('🔥 [Backend] Error stack:', err instanceof Error ? err.stack : 'No stack')
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate cards'
+      
+      setError(errorMessage)
+      setSteps(prev => prev.map(step => 
+        step.status === 'active' 
+          ? { ...step, status: 'error' as const, description: errorMessage }
+          : step
+      ))
+    }
+  }
+
+  // Process locally (offline mode)
+  const processLocally = async (content: { text?: string } | null) => {
     // Initialize database
     await initDB()
 
@@ -116,12 +305,7 @@ export default function Processing() {
 
     // Process content
     const result = await processContent(
-      {
-        text: content.text,
-        // Note: File objects can't be stored in sessionStorage, 
-        // so we'd need to handle file upload differently in production
-        url: content.url,
-      },
+      { text: content?.text },
       handleStatus
     )
 
@@ -132,9 +316,14 @@ export default function Processing() {
       // Mark all steps complete
       setSteps(prev => prev.map(step => ({ ...step, status: 'complete' as const })))
       
-      // Navigate to study page after a brief delay
+      // Increment usage count on successful generation
+      incrementUsageCount()
+      console.log('📦 [Local] Usage count incremented')
+      
+      // Navigate to study page after a brief delay (replace to prevent going back to processing)
       setTimeout(() => {
         navigate(`/study/${result.deckId}`, { 
+          replace: true,
           state: { 
             isNew: true,
             cardCount: result.cards?.length || 0,
@@ -156,10 +345,13 @@ export default function Processing() {
     setSteps(initialSteps)
     setProgress(0)
     setIsProcessing(false)
+    processingStarted.current = false
     
     const content = getContent()
-    if (content) {
-      startProcessing(content)
+    const file = getFile()
+    if (content || file) {
+      processingStarted.current = true
+      startProcessing(content, file)
     } else {
       navigate('/create')
     }

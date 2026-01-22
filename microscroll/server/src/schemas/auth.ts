@@ -43,8 +43,17 @@ export const logoutSchema = z.object({
     .min(1, 'Refresh token is required'),
 });
 
+// Verify OTP schema
+export const verifyOTPSchema = z.object({
+  otp: z
+    .string()
+    .length(6, 'OTP must be 6 digits')
+    .regex(/^\d{6}$/, 'OTP must be 6 digits'),
+});
+
 // Types
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;
+export type VerifyOTPInput = z.infer<typeof verifyOTPSchema>;

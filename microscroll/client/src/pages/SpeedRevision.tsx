@@ -16,6 +16,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getDeck, getCardsForDeck, updateCardProgress, getCardProgress, type StoredCard } from '../lib/storage'
+import { api } from '../lib/api'
 
 interface QuizStatement {
   id: string
@@ -33,6 +34,12 @@ interface GameStats {
   maxStreak: number
   timeBonus: number
   totalTime: number
+}
+
+interface CardResult {
+  cardId: string
+  correct: boolean
+  timeSpent: number
 }
 
 type GamePhase = 'intro' | 'playing' | 'feedback' | 'summary'
@@ -67,6 +74,10 @@ export default function SpeedRevision() {
   const [feedbackResult, setFeedbackResult] = useState<'correct' | 'incorrect' | 'timeout' | null>(null)
   const [deckTitle, setDeckTitle] = useState('')
   const [loading, setLoading] = useState(true)
+  
+  // Track card results for API submission
+  const [cardResults, setCardResults] = useState<CardResult[]>([])
+  const [resultsSaved, setResultsSaved] = useState(false)
   
   // Touch handling
   const touchStartX = useRef(0)
@@ -197,6 +208,8 @@ export default function SpeedRevision() {
       timeBonus: 0,
       totalTime: 0,
     })
+    setCardResults([])
+    setResultsSaved(false)
     startTimer()
   }
 
@@ -262,7 +275,14 @@ export default function SpeedRevision() {
       }
     })
     
-    // Update card progress
+    // Track result for API submission
+    setCardResults(prev => [...prev, {
+      cardId: currentStatement.cardId,
+      correct: isCorrect,
+      timeSpent: Math.round(timeUsed * 1000), // ms
+    }])
+    
+    // Update local card progress
     try {
       const progress = await getCardProgress(currentStatement.cardId, deckId!)
       await updateCardProgress(progress, isCorrect)
@@ -349,6 +369,29 @@ export default function SpeedRevision() {
       startTimer()
     }
   }
+
+  // Save results to backend when game completes
+  useEffect(() => {
+    if (phase === 'summary' && !resultsSaved && deckId && api.auth.isAuthenticated()) {
+      const saveResults = async () => {
+        try {
+          await api.study.saveSpeedResults({
+            deckId,
+            cardsPlayed: statements.length,
+            correctAnswers: stats.correct,
+            totalTime: Math.round(stats.totalTime),
+            maxStreak: stats.maxStreak,
+            cardResults,
+          })
+          setResultsSaved(true)
+          console.log('Speed revision results saved to backend')
+        } catch (err) {
+          console.error('Failed to save speed results:', err)
+        }
+      }
+      saveResults()
+    }
+  }, [phase, resultsSaved, deckId, stats, cardResults, statements.length])
 
   // Touch handlers
   const handleTouchStart = (e: React.TouchEvent) => {

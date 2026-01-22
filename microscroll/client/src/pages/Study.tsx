@@ -1,18 +1,36 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { api, Card as ApiCard } from '../lib/api'
 import { getDeck, getCardsForDeck, updateCardProgress, getCardProgress, type Deck, type StoredCard } from '../lib/storage'
 import StudyFeed from '../components/StudyFeed'
+
+// Unified card type for the component
+interface DisplayCard {
+  id: string
+  headline: string
+  detailParagraph: string
+  bulletPoints: string[]
+  emoji: string
+  difficulty: 'easy' | 'medium' | 'hard'
+  ghostWords: string[]
+  eli5Version?: string | null
+  quizQuestion?: string | null
+  quizAnswer?: boolean | null
+  order: number
+}
 
 export default function Study() {
   const { deckId } = useParams<{ deckId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
   
-  const [deck, setDeck] = useState<Deck | null>(null)
-  const [cards, setCards] = useState<StoredCard[]>([])
+  const [deckTitle, setDeckTitle] = useState('')
+  const [cards, setCards] = useState<DisplayCard[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCelebration, setShowCelebration] = useState(false)
+  const [isOnline, setIsOnline] = useState(false)
+  const [sessionId, setSessionId] = useState<string | null>(null)
 
   // Check if this is a newly created deck
   const isNewDeck = location.state?.isNew
@@ -39,21 +57,95 @@ export default function Study() {
     try {
       setLoading(true)
       
-      const [deckData, cardsData] = await Promise.all([
-        getDeck(id),
-        getCardsForDeck(id),
-      ])
+      if (api.auth.isAuthenticated()) {
+        // Load from backend
+        setIsOnline(true)
+        const result = await api.decks.get(id)
+        
+        if (!result.deck) {
+          setError('Deck not found')
+          return
+        }
 
-      if (!deckData) {
-        setError('Deck not found')
-        return
+        setDeckTitle(result.deck.title)
+        setCards(result.deck.cards.map(c => ({
+          id: c.id,
+          headline: c.headline,
+          detailParagraph: c.detailParagraph,
+          bulletPoints: c.bulletPoints,
+          emoji: c.emoji,
+          difficulty: c.difficulty,
+          ghostWords: c.ghostWords,
+          eli5Version: c.eli5Version,
+          quizQuestion: c.quizQuestion,
+          quizAnswer: c.quizAnswer,
+          order: c.order,
+        })))
+
+        // Start a study session
+        try {
+          const session = await api.study.startSession(id, 'normal')
+          setSessionId(session.id)
+        } catch (e) {
+          console.error('Failed to start session:', e)
+        }
+      } else {
+        // Load from local storage
+        setIsOnline(false)
+        const [deckData, cardsData] = await Promise.all([
+          getDeck(id),
+          getCardsForDeck(id),
+        ])
+
+        if (!deckData) {
+          setError('Deck not found')
+          return
+        }
+
+        setDeckTitle(deckData.title)
+        setCards(cardsData.map(c => ({
+          id: c.id,
+          headline: c.headline,
+          detailParagraph: c.detailParagraph,
+          bulletPoints: c.bulletPoints,
+          emoji: c.emoji,
+          difficulty: c.difficulty,
+          ghostWords: c.ghostWords || [],
+          eli5Version: c.eli5Version,
+          quizQuestion: c.quizQuestion,
+          quizAnswer: c.quizAnswer,
+          order: c.order,
+        })))
       }
-
-      setDeck(deckData)
-      setCards(cardsData)
     } catch (err) {
-      setError('Failed to load deck')
-      console.error(err)
+      console.error('Failed to load deck:', err)
+      // Try local fallback
+      try {
+        const [deckData, cardsData] = await Promise.all([
+          getDeck(id),
+          getCardsForDeck(id),
+        ])
+        if (deckData) {
+          setDeckTitle(deckData.title)
+          setCards(cardsData.map(c => ({
+            id: c.id,
+            headline: c.headline,
+            detailParagraph: c.detailParagraph,
+            bulletPoints: c.bulletPoints,
+            emoji: c.emoji,
+            difficulty: c.difficulty,
+            ghostWords: c.ghostWords || [],
+            eli5Version: c.eli5Version,
+            quizQuestion: c.quizQuestion,
+            quizAnswer: c.quizAnswer,
+            order: c.order,
+          })))
+        } else {
+          setError('Deck not found')
+        }
+      } catch {
+        setError('Failed to load deck')
+      }
     } finally {
       setLoading(false)
     }
@@ -68,8 +160,12 @@ export default function Study() {
     if (!deckId) return
     
     try {
-      const progress = await getCardProgress(cardId, deckId)
-      await updateCardProgress(progress, true)
+      if (isOnline) {
+        await api.study.recordReview(cardId, true)
+      } else {
+        const progress = await getCardProgress(cardId, deckId)
+        await updateCardProgress(progress, true)
+      }
     } catch (err) {
       console.error('Failed to update progress:', err)
     }
@@ -79,12 +175,30 @@ export default function Study() {
     if (!deckId) return
     
     try {
-      const progress = await getCardProgress(cardId, deckId)
-      await updateCardProgress(progress, false)
+      if (isOnline) {
+        await api.study.recordReview(cardId, false)
+      } else {
+        const progress = await getCardProgress(cardId, deckId)
+        await updateCardProgress(progress, false)
+      }
     } catch (err) {
       console.error('Failed to update progress:', err)
     }
   }
+
+  // End session when leaving
+  useEffect(() => {
+    return () => {
+      if (sessionId && isOnline) {
+        // End the study session (fire and forget)
+        api.study.endSession(sessionId, {
+          cardsStudied: cards.length,
+          correctAnswers: 0, // Would need to track this
+          totalTime: 0, // Would need to track this
+        }).catch(console.error)
+      }
+    }
+  }, [sessionId, isOnline, cards.length])
 
   if (loading) {
     return (
@@ -101,7 +215,7 @@ export default function Study() {
     )
   }
 
-  if (error || !deck) {
+  if (error || cards.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-dvh bg-background-light">
         <div className="text-center px-6">
@@ -126,14 +240,24 @@ export default function Study() {
       {/* Header overlay */}
       <header className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 pt-3 pb-8 bg-gradient-to-b from-black/50 to-transparent">
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => {
+            // If this is a new deck, go to home instead of back to processing
+            if (isNewDeck) {
+              navigate('/', { replace: true })
+            } else {
+              navigate(-1)
+            }
+          }}
           className="p-2 rounded-full bg-white/10 backdrop-blur-sm hover:bg-white/20 transition-colors"
         >
           <span className="material-symbols-outlined text-white">close</span>
         </button>
         
         <div className="flex items-center gap-2">
-          <span className="text-white/80 text-sm font-medium">{deck.title}</span>
+          <span className="text-white/80 text-sm font-medium">{deckTitle}</span>
+          {!isOnline && (
+            <span className="material-symbols-outlined text-amber-400 text-[16px]">cloud_off</span>
+          )}
         </div>
         
         <button className="p-2 rounded-full bg-white/10 backdrop-blur-sm hover:bg-white/20 transition-colors">
@@ -143,7 +267,7 @@ export default function Study() {
 
       {/* Study Feed */}
       <StudyFeed
-        cards={cards}
+        cards={cards as any}
         onBookmark={handleBookmark}
         onMastered={handleMastered}
         onReviewLater={handleReviewLater}

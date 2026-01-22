@@ -356,7 +356,7 @@ function StudyCard({
           <div className="mb-4">
             <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white/20 backdrop-blur-sm text-white text-xs font-bold uppercase tracking-wider">
               <span>{card.emoji}</span>
-              {card.tags[0] || 'Study'}
+              {card.tags?.[0] || 'Study'}
             </span>
           </div>
 
@@ -388,7 +388,7 @@ function StudyCard({
 
             {/* Bullet points */}
             <ul className="space-y-3">
-              {card.bulletPoints.map((bullet, index) => (
+              {(card.bulletPoints || []).map((bullet, index) => (
                 <li key={index} className="flex items-start gap-3">
                   <span className="mt-2 w-2 h-2 rounded-full bg-white/60 flex-shrink-0" />
                   <span className="text-white/80 leading-relaxed">
@@ -400,16 +400,18 @@ function StudyCard({
           </div>
 
           {/* Tags */}
-          <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-white/20">
-            {card.tags.map((tag, index) => (
-              <span
-                key={index}
-                className="px-2 py-1 rounded-full bg-white/10 text-white/70 text-xs"
-              >
-                #{tag}
-              </span>
-            ))}
-          </div>
+          {card.tags && card.tags.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-white/20">
+              {card.tags.map((tag, index) => (
+                <span
+                  key={index}
+                  className="px-2 py-1 rounded-full bg-white/10 text-white/70 text-xs"
+                >
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

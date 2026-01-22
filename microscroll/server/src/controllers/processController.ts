@@ -9,17 +9,35 @@ export async function uploadFile(
   res: Response,
   next: NextFunction
 ): Promise<void> {
+  console.log('📥 [Controller.uploadFile] Request received');
+  console.log('📥 [Controller.uploadFile] User ID:', req.user?.id);
+  console.log('📥 [Controller.uploadFile] File:', req.file ? {
+    fieldname: req.file.fieldname,
+    originalname: req.file.originalname,
+    mimetype: req.file.mimetype,
+    size: req.file.size,
+    path: req.file.path,
+  } : 'NO FILE');
+  console.log('📥 [Controller.uploadFile] Body title:', req.body.title);
+  
   try {
     if (!req.file) {
+      console.error('📥 [Controller.uploadFile] ERROR: No file in request');
       throw errors.badRequest('No file uploaded');
     }
 
+    console.log('📥 [Controller.uploadFile] Calling processService.processFile...');
     const result = await processService.processFile({
       userId: req.user!.id,
       filePath: req.file.path,
       fileName: req.file.originalname,
       title: req.body.title,
     });
+
+    console.log('📥 [Controller.uploadFile] Processing complete');
+    console.log('📥 [Controller.uploadFile] Result job ID:', result.job?.id);
+    console.log('📥 [Controller.uploadFile] Result deck ID:', result.deck?.id);
+    console.log('📥 [Controller.uploadFile] Result deck cards:', result.deck?.totalCards);
 
     res.status(201).json({
       success: true,
@@ -29,6 +47,7 @@ export async function uploadFile(
       },
     });
   } catch (error) {
+    console.error('📥 [Controller.uploadFile] ERROR:', error);
     next(error);
   }
 }
@@ -39,12 +58,22 @@ export async function processText(
   res: Response,
   next: NextFunction
 ): Promise<void> {
+  console.log('📝 [Controller.processText] Request received');
+  console.log('📝 [Controller.processText] User ID:', req.user?.id);
+  console.log('📝 [Controller.processText] Title:', req.body.title);
+  console.log('📝 [Controller.processText] Content length:', req.body.content?.length);
+  
   try {
+    console.log('📝 [Controller.processText] Calling processService.processText...');
     const result = await processService.processText({
       userId: req.user!.id,
       content: req.body.content,
       title: req.body.title,
     });
+
+    console.log('📝 [Controller.processText] Processing complete');
+    console.log('📝 [Controller.processText] Result job ID:', result.job?.id);
+    console.log('📝 [Controller.processText] Result deck ID:', result.deck?.id);
 
     res.status(201).json({
       success: true,
@@ -54,6 +83,7 @@ export async function processText(
       },
     });
   } catch (error) {
+    console.error('📝 [Controller.processText] ERROR:', error);
     next(error);
   }
 }

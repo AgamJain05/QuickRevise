@@ -107,7 +107,10 @@ async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
+  console.log('🌐 [API] Request:', options.method || 'GET', endpoint);
+  
   const { accessToken } = tokens.get();
+  console.log('🌐 [API] Access token:', accessToken ? 'EXISTS' : 'MISSING');
   
   const headers: HeadersInit = {
     ...options.headers,
@@ -116,21 +119,27 @@ async function request<T>(
   // Don't set Content-Type for FormData
   if (!(options.body instanceof FormData)) {
     (headers as Record<string, string>)['Content-Type'] = 'application/json';
+  } else {
+    console.log('🌐 [API] FormData detected, not setting Content-Type');
   }
   
   if (accessToken) {
     (headers as Record<string, string>)['Authorization'] = `Bearer ${accessToken}`;
   }
   
+  console.log('🌐 [API] Making fetch to:', `${API_BASE}${endpoint}`);
   let response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers,
   });
+  console.log('🌐 [API] Response status:', response.status, response.statusText);
   
   // Handle 401 - try to refresh token
   if (response.status === 401) {
+    console.log('🌐 [API] 401 received, attempting token refresh...');
     const refreshed = await refreshAccessToken();
     if (refreshed) {
+      console.log('🌐 [API] Token refreshed, retrying request...');
       // Retry with new token
       const newAccessToken = tokens.get().accessToken;
       (headers as Record<string, string>)['Authorization'] = `Bearer ${newAccessToken}`;
@@ -138,7 +147,9 @@ async function request<T>(
         ...options,
         headers,
       });
+      console.log('🌐 [API] Retry response status:', response.status);
     } else {
+      console.log('🌐 [API] Token refresh failed, redirecting...');
       // Refresh failed, clear tokens
       tokens.clear();
       window.location.href = '/onboarding';
@@ -147,11 +158,14 @@ async function request<T>(
   }
   
   const data = await response.json();
+  console.log('🌐 [API] Response data:', data.success ? 'SUCCESS' : 'FAILED', data.success ? '' : data.error);
   
   if (!data.success) {
+    console.error('🌐 [API] Error response:', data.error);
     throw new Error(data.error?.message || 'Request failed');
   }
   
+  console.log('🌐 [API] Response data keys:', Object.keys(data.data || {}));
   return data.data;
 }
 
@@ -240,6 +254,18 @@ export const auth = {
   
   isAuthenticated: (): boolean => {
     return !!tokens.get().accessToken;
+  },
+  
+  // Email Verification (OTP-based)
+  sendVerificationOTP: async (): Promise<{ message: string }> => {
+    return request<{ message: string }>('/auth/send-verification', { method: 'POST' });
+  },
+  
+  verifyOTP: async (otp: string): Promise<{ success: boolean; message: string }> => {
+    return request<{ success: boolean; message: string }>('/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ otp }),
+    });
   },
 };
 
@@ -404,23 +430,38 @@ export const process = {
   },
   
   uploadFile: async (file: File, title?: string): Promise<ProcessResult> => {
+    console.log('📤 [API.uploadFile] Starting file upload');
+    console.log('📤 [API.uploadFile] File:', file.name, file.size, file.type);
+    console.log('📤 [API.uploadFile] Title:', title);
+    
     const formData = new FormData();
     formData.append('file', file);
     if (title) {
       formData.append('title', title);
     }
     
-    return request<ProcessResult>('/process/upload', {
+    console.log('📤 [API.uploadFile] FormData created, calling request...');
+    const result = await request<ProcessResult>('/process/upload', {
       method: 'POST',
       body: formData,
     });
+    
+    console.log('📤 [API.uploadFile] Upload complete, result:', result);
+    return result;
   },
   
   processText: async (content: string, title: string): Promise<ProcessResult> => {
-    return request<ProcessResult>('/process/text', {
+    console.log('📝 [API.processText] Starting text processing');
+    console.log('📝 [API.processText] Title:', title);
+    console.log('📝 [API.processText] Content length:', content.length);
+    
+    const result = await request<ProcessResult>('/process/text', {
       method: 'POST',
       body: JSON.stringify({ content, title }),
     });
+    
+    console.log('📝 [API.processText] Processing complete, result:', result);
+    return result;
   },
   
   listJobs: async (): Promise<{ jobs: ProcessingJob[] }> => {
@@ -429,6 +470,223 @@ export const process = {
   
   getJob: async (jobId: string): Promise<{ job: ProcessingJob }> => {
     return request<{ job: ProcessingJob }>(`/process/jobs/${jobId}`);
+  },
+};
+
+// ===========================================
+// Analytics API
+// ===========================================
+
+export interface UserAnalytics {
+  streak: number;
+  longestStreak: number;
+  totalCards: number;
+  totalReviewed: number;
+  totalDecks: number;
+  masteryPercent: number;
+  weeklyActivity: number[];
+  dueForReview: number;
+  todayStudied: number;
+  dailyGoal: number;
+}
+
+export interface WeeklyBreakdown {
+  date: string;
+  cardsStudied: number;
+  timeSpent: number;
+  sessions: number;
+}
+
+export interface DeckAnalytics {
+  deckId: string;
+  title: string;
+  totalCards: number;
+  masteryPercent: number;
+  dueForReview: number;
+  recentSessions: Array<{
+    id: string;
+    mode: string;
+    cardsStudied: number;
+    correctAnswers: number;
+    date: string;
+  }>;
+}
+
+export const analytics = {
+  get: async (): Promise<UserAnalytics> => {
+    return request<UserAnalytics>('/analytics');
+  },
+  
+  getWeekly: async (): Promise<WeeklyBreakdown[]> => {
+    return request<WeeklyBreakdown[]>('/analytics/weekly');
+  },
+  
+  getDeck: async (deckId: string): Promise<DeckAnalytics> => {
+    return request<DeckAnalytics>(`/analytics/deck/${deckId}`);
+  },
+};
+
+// ===========================================
+// Settings API
+// ===========================================
+
+export interface UserSettings {
+  theme: 'light' | 'dark' | 'system';
+  dailyGoal: number;
+  soundEnabled: boolean;
+  hapticsEnabled: boolean;
+  autoPlayEnabled: boolean;
+  currentStreak: number;
+  longestStreak: number;
+  lastActiveDate: string | null;
+}
+
+export const settings = {
+  get: async (): Promise<UserSettings> => {
+    return request<UserSettings>('/settings');
+  },
+  
+  update: async (data: Partial<Pick<UserSettings, 'theme' | 'dailyGoal' | 'soundEnabled' | 'hapticsEnabled' | 'autoPlayEnabled'>>): Promise<UserSettings> => {
+    return request<UserSettings>('/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+  
+  export: async (): Promise<Blob> => {
+    const { accessToken } = tokens.get();
+    const response = await fetch(`${API_BASE}/settings/export`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    return response.blob();
+  },
+  
+  deleteAllData: async (): Promise<void> => {
+    await request('/settings/data', {
+      method: 'DELETE',
+      body: JSON.stringify({ confirm: 'DELETE_ALL_DATA' }),
+    });
+  },
+};
+
+// ===========================================
+// Study API
+// ===========================================
+
+export interface StudySession {
+  id: string;
+  mode: 'normal' | 'speed' | 'ghost';
+  cardsStudied: number;
+  correctAnswers: number;
+  totalTime: number;
+  streak: number;
+  startedAt: string;
+  endedAt: string | null;
+  deck?: {
+    id: string;
+    title: string;
+    emoji: string;
+  };
+}
+
+export interface CardProgress {
+  id: string;
+  cardId: string;
+  reviewCount: number;
+  correctCount: number;
+  incorrectCount: number;
+  masteryLevel: number;
+  lastReviewed: string | null;
+  nextReviewDate: string | null;
+}
+
+export interface DueCard extends Card {
+  deck: {
+    id: string;
+    title: string;
+    emoji: string;
+  };
+  progress: {
+    masteryLevel: number;
+    reviewCount: number;
+    lastReviewed: string | null;
+  } | null;
+}
+
+export const study = {
+  // Start a study session
+  startSession: async (deckId: string, mode: 'normal' | 'speed' | 'ghost'): Promise<StudySession> => {
+    return request<StudySession>('/study/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ deckId, mode }),
+    });
+  },
+  
+  // End a study session
+  endSession: async (sessionId: string, data: {
+    cardsStudied: number;
+    correctAnswers: number;
+    totalTime: number;
+    streak?: number;
+  }): Promise<StudySession> => {
+    return request<StudySession>(`/study/sessions/${sessionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+  
+  // Get study sessions
+  getSessions: async (options?: {
+    deckId?: string;
+    mode?: string;
+    limit?: number;
+  }): Promise<StudySession[]> => {
+    const params = new URLSearchParams();
+    if (options?.deckId) params.set('deckId', options.deckId);
+    if (options?.mode) params.set('mode', options.mode);
+    if (options?.limit) params.set('limit', String(options.limit));
+    
+    const queryString = params.toString();
+    return request<StudySession[]>(`/study/sessions${queryString ? `?${queryString}` : ''}`);
+  },
+  
+  // Record a card review
+  recordReview: async (cardId: string, correct: boolean, timeSpent?: number): Promise<CardProgress> => {
+    return request<CardProgress>('/study/review', {
+      method: 'POST',
+      body: JSON.stringify({ cardId, correct, timeSpent }),
+    });
+  },
+  
+  // Get cards due for review
+  getDueCards: async (options?: { deckId?: string; limit?: number }): Promise<DueCard[]> => {
+    const params = new URLSearchParams();
+    if (options?.deckId) params.set('deckId', options.deckId);
+    if (options?.limit) params.set('limit', String(options.limit));
+    
+    const queryString = params.toString();
+    return request<DueCard[]>(`/study/due${queryString ? `?${queryString}` : ''}`);
+  },
+  
+  // Save speed revision results
+  saveSpeedResults: async (data: {
+    deckId: string;
+    cardsPlayed: number;
+    correctAnswers: number;
+    totalTime: number;
+    maxStreak: number;
+    cardResults?: Array<{
+      cardId: string;
+      correct: boolean;
+      timeSpent: number;
+    }>;
+  }): Promise<StudySession> => {
+    return request<StudySession>('/study/speed-results', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 };
 
@@ -451,6 +709,9 @@ export const api = {
   decks,
   cards,
   process,
+  analytics,
+  settings,
+  study,
   health,
   tokens,
 };

@@ -1,11 +1,22 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { api } from '../lib/api'
 import { getAllDecks, getStudyStats, type Deck } from '../lib/storage'
 import Card from '../components/Card'
 
+interface DeckDisplay {
+  id: string
+  title: string
+  emoji: string
+  colorTheme: string
+  cardCount: number
+}
+
 export default function Home() {
   const navigate = useNavigate()
-  const [decks, setDecks] = useState<Deck[]>([])
+  const [decks, setDecks] = useState<DeckDisplay[]>([])
+  const [isOnline, setIsOnline] = useState(false)
+  const [userName, setUserName] = useState<string | null>(null)
   const [stats, setStats] = useState({
     totalDecks: 0,
     totalCards: 0,
@@ -21,14 +32,73 @@ export default function Home() {
 
   const loadData = async () => {
     try {
-      const [decksData, statsData] = await Promise.all([
-        getAllDecks(),
-        getStudyStats(),
-      ])
-      setDecks(decksData.slice(0, 5)) // Show recent 5
-      setStats(statsData)
+      if (api.auth.isAuthenticated()) {
+        // Load from backend
+        setIsOnline(true)
+        const [decksResult, analyticsResult, userResult] = await Promise.all([
+          api.decks.list({ limit: 5, sortBy: 'updatedAt', sortOrder: 'desc' }),
+          api.analytics.get(),
+          api.auth.me(),
+        ])
+        
+        // Set user name (use first name only)
+        if (userResult?.name) {
+          const firstName = userResult.name.split(' ')[0]
+          setUserName(firstName)
+        }
+        
+        setDecks(decksResult.items.map(d => ({
+          id: d.id,
+          title: d.title,
+          emoji: d.emoji,
+          colorTheme: d.colorTheme,
+          cardCount: d.totalCards,
+        })))
+        
+        setStats({
+          totalDecks: analyticsResult.totalDecks,
+          totalCards: analyticsResult.totalCards,
+          cardsReviewed: analyticsResult.totalReviewed,
+          averageMastery: analyticsResult.masteryPercent,
+          streak: analyticsResult.streak,
+        })
+      } else {
+        // Load from local storage
+        setIsOnline(false)
+        const [decksData, statsData] = await Promise.all([
+          getAllDecks(),
+          getStudyStats(),
+        ])
+        
+        setDecks(decksData.slice(0, 5).map(d => ({
+          id: d.id,
+          title: d.title,
+          emoji: d.emoji,
+          colorTheme: d.colorTheme,
+          cardCount: d.cards?.length || 0,
+        })))
+        
+        setStats(statsData)
+      }
     } catch (err) {
       console.error('Failed to load data:', err)
+      // Fallback to local
+      try {
+        const [decksData, statsData] = await Promise.all([
+          getAllDecks(),
+          getStudyStats(),
+        ])
+        setDecks(decksData.slice(0, 5).map(d => ({
+          id: d.id,
+          title: d.title,
+          emoji: d.emoji,
+          colorTheme: d.colorTheme,
+          cardCount: d.cards?.length || 0,
+        })))
+        setStats(statsData)
+      } catch {
+        // Ignore
+      }
     } finally {
       setLoading(false)
     }
@@ -49,6 +119,10 @@ export default function Home() {
       amber: 'from-amber-500 to-orange-600',
       rose: 'from-rose-500 to-pink-600',
       teal: 'from-teal-500 to-cyan-600',
+      purple: 'from-purple-500 to-fuchsia-600',
+      orange: 'from-orange-500 to-red-600',
+      green: 'from-green-500 to-emerald-600',
+      pink: 'from-pink-500 to-rose-600',
     }
     return colors[theme] || colors.blue
   }
@@ -67,8 +141,20 @@ export default function Home() {
     <div className="pb-6">
       {/* Header */}
       <header className="px-5 pt-6 pb-4">
-        <p className="text-slate-500 text-sm">{getGreeting()} 👋</p>
-        <h1 className="text-2xl font-bold text-slate-900 mt-1">Ready to learn?</h1>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-slate-500 text-sm">
+              {getGreeting()}{userName ? `, ${userName}` : ''} 👋
+            </p>
+            <h1 className="text-2xl font-bold text-slate-900 mt-1">Ready to learn?</h1>
+          </div>
+          {!isOnline && (
+            <div className="flex items-center gap-1 px-2 py-1 bg-amber-50 rounded-lg">
+              <span className="material-symbols-outlined text-amber-600 text-[16px]">cloud_off</span>
+              <span className="text-xs text-amber-700">Offline</span>
+            </div>
+          )}
+        </div>
       </header>
 
       {/* Quick stats */}
@@ -157,8 +243,8 @@ export default function Home() {
                 <div className={`h-1.5 bg-gradient-to-r ${getColorClass(deck.colorTheme)}`} />
                 <div className="p-4 flex items-center gap-4">
                   <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${getColorClass(deck.colorTheme)} flex items-center justify-center flex-shrink-0`}>
-                    <span className="text-white text-xl font-bold">
-                      {deck.title.charAt(0).toUpperCase()}
+                    <span className="text-white text-xl">
+                      {deck.emoji || deck.title.charAt(0).toUpperCase()}
                     </span>
                   </div>
                   <div className="flex-1 min-w-0">

@@ -1,12 +1,26 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getAllDecks, deleteDeck, getStudyStats, type Deck } from '../lib/storage'
+import { api } from '../lib/api'
+import { getAllDecks, deleteDeck as deleteLocalDeck, getStudyStats, type Deck as LocalDeck } from '../lib/storage'
 import Card from '../components/Card'
+
+interface DeckDisplay {
+  id: string
+  title: string
+  emoji: string
+  colorTheme: string
+  cardCount: number
+  createdAt: Date
+  tags: string[]
+  sourceName?: string
+  sourceType?: string
+}
 
 export default function Library() {
   const navigate = useNavigate()
-  const [decks, setDecks] = useState<Deck[]>([])
+  const [decks, setDecks] = useState<DeckDisplay[]>([])
   const [loading, setLoading] = useState(true)
+  const [isOnline, setIsOnline] = useState(false)
   const [stats, setStats] = useState({
     totalDecks: 0,
     totalCards: 0,
@@ -23,14 +37,79 @@ export default function Library() {
   const loadData = async () => {
     try {
       setLoading(true)
-      const [decksData, statsData] = await Promise.all([
-        getAllDecks(),
-        getStudyStats(),
-      ])
-      setDecks(decksData)
-      setStats(statsData)
+      
+      if (api.auth.isAuthenticated()) {
+        // Load from backend
+        setIsOnline(true)
+        const [decksResult, analyticsResult] = await Promise.all([
+          api.decks.list({ limit: 50 }),
+          api.analytics.get(),
+        ])
+        
+        setDecks(decksResult.items.map(d => ({
+          id: d.id,
+          title: d.title,
+          emoji: d.emoji,
+          colorTheme: d.colorTheme,
+          cardCount: d.totalCards,
+          createdAt: new Date(d.createdAt),
+          tags: [],
+          sourceName: d.sourceName || undefined,
+          sourceType: d.sourceType,
+        })))
+        
+        setStats({
+          totalDecks: analyticsResult.totalDecks,
+          totalCards: analyticsResult.totalCards,
+          cardsReviewed: analyticsResult.totalReviewed,
+          averageMastery: analyticsResult.masteryPercent,
+          streak: analyticsResult.streak,
+        })
+      } else {
+        // Load from local storage
+        setIsOnline(false)
+        const [decksData, statsData] = await Promise.all([
+          getAllDecks(),
+          getStudyStats(),
+        ])
+        
+        setDecks(decksData.map(d => ({
+          id: d.id,
+          title: d.title,
+          emoji: d.emoji,
+          colorTheme: d.colorTheme,
+          cardCount: d.cards?.length || 0,
+          createdAt: d.createdAt,
+          tags: d.tags || [],
+          sourceName: d.sourceName,
+          sourceType: d.sourceType,
+        })))
+        
+        setStats(statsData)
+      }
     } catch (err) {
       console.error('Failed to load library:', err)
+      // Fallback to local
+      try {
+        const [decksData, statsData] = await Promise.all([
+          getAllDecks(),
+          getStudyStats(),
+        ])
+        setDecks(decksData.map(d => ({
+          id: d.id,
+          title: d.title,
+          emoji: d.emoji,
+          colorTheme: d.colorTheme,
+          cardCount: d.cards?.length || 0,
+          createdAt: d.createdAt,
+          tags: d.tags || [],
+          sourceName: d.sourceName,
+          sourceType: d.sourceType,
+        })))
+        setStats(statsData)
+      } catch {
+        // Ignore
+      }
     } finally {
       setLoading(false)
     }
@@ -43,7 +122,13 @@ export default function Library() {
     
     try {
       setDeletingId(deckId)
-      await deleteDeck(deckId)
+      
+      if (isOnline) {
+        await api.decks.delete(deckId)
+      } else {
+        await deleteLocalDeck(deckId)
+      }
+      
       setDecks(prev => prev.filter(d => d.id !== deckId))
       setStats(prev => ({
         ...prev,
@@ -103,8 +188,18 @@ export default function Library() {
     <div className="pb-6">
       {/* Header */}
       <header className="px-5 pt-6 pb-4">
-        <h1 className="text-2xl font-bold text-slate-900">Library</h1>
-        <p className="text-slate-500 mt-1">Your study decks and progress</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Library</h1>
+            <p className="text-slate-500 mt-1">Your study decks and progress</p>
+          </div>
+          {!isOnline && (
+            <div className="flex items-center gap-1 px-2 py-1 bg-amber-50 rounded-lg">
+              <span className="material-symbols-outlined text-amber-600 text-[16px]">cloud_off</span>
+              <span className="text-xs text-amber-700">Offline</span>
+            </div>
+          )}
+        </div>
       </header>
 
       {/* Stats cards */}
@@ -164,7 +259,7 @@ export default function Library() {
       <div className="px-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-slate-900">Your Decks</h2>
-          <span className="text-sm text-slate-500">{stats.totalDecks} decks</span>
+          <span className="text-sm text-slate-500">{decks.length} decks</span>
         </div>
 
         {decks.length === 0 ? (
@@ -204,7 +299,7 @@ export default function Library() {
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <h3 className="font-bold text-slate-900 truncate">
-                          {deck.title}
+                          {deck.emoji} {deck.title}
                         </h3>
                         <p className="text-sm text-slate-500 mt-0.5">
                           {deck.cardCount} cards • {formatDate(deck.createdAt)}

@@ -10,7 +10,7 @@ import { createSemanticChunks, SemanticChunk, estimateCardCount } from './chunke
 export const GEMINI_LIMITS = {
   maxInputChars: 30000,
   maxOutputTokens: 8000,
-  model: 'gemini-1.5-flash',
+  model: 'gemini-3-flash-preview',  // Updated to latest model
 };
 
 // Card configuration
@@ -100,19 +100,31 @@ export async function generateCardsFromContent(
   content: string,
   title?: string
 ): Promise<GeneratedCard[]> {
+  console.log('🤖 [AIService.generateCardsFromContent] Starting');
+  console.log('🤖 [AIService.generateCardsFromContent] Title:', title);
+  console.log('🤖 [AIService.generateCardsFromContent] Content length:', content?.length || 0);
+  
   // Trim content to Gemini limits
   const trimmedContent = content.slice(0, GEMINI_LIMITS.maxInputChars);
+  console.log('🤖 [AIService.generateCardsFromContent] Trimmed content length:', trimmedContent.length);
   
   // Create semantic chunks for better card generation
+  console.log('🤖 [AIService.generateCardsFromContent] Creating semantic chunks...');
   const chunks = createSemanticChunks(trimmedContent);
+  console.log('🤖 [AIService.generateCardsFromContent] Created', chunks.length, 'chunks');
+  
   const expectedCards = estimateCardCount(trimmedContent);
   
-  console.log(`📊 Content analysis: ${trimmedContent.split(/\s+/).length} words → expecting ${expectedCards} cards`);
+  console.log(`📊 [AIService] Content analysis: ${trimmedContent.split(/\s+/).length} words → expecting ${expectedCards} cards`);
+  
+  console.log('🤖 [AIService.generateCardsFromContent] Gemini key configured:', !!config.ai.geminiKey);
   
   if (config.ai.geminiKey) {
+    console.log('🤖 [AIService.generateCardsFromContent] Using Gemini API');
     return generateWithGemini(chunks, title, expectedCards);
   }
   
+  console.log('🤖 [AIService.generateCardsFromContent] Using demo mode (no API key)');
   return generateDemoCards(chunks, title);
 }
 
@@ -124,7 +136,13 @@ async function generateWithGemini(
   title?: string,
   expectedCards?: number
 ): Promise<GeneratedCard[]> {
+  console.log('🌟 [AIService.generateWithGemini] Starting Gemini generation');
+  console.log('🌟 [AIService.generateWithGemini] Chunks:', chunks.length);
+  console.log('🌟 [AIService.generateWithGemini] Title:', title);
+  console.log('🌟 [AIService.generateWithGemini] Expected cards:', expectedCards);
+  
   if (!config.ai.geminiKey) {
+    console.error('🌟 [AIService.generateWithGemini] No Gemini API key!');
     throw new Error('Gemini API key not configured');
   }
 
@@ -136,6 +154,8 @@ async function generateWithGemini(
       return `[Chunk ${i + 1}${typeHint}]\n${chunk.content}`;
     })
     .join('\n\n');
+
+  console.log('🌟 [AIService.generateWithGemini] Chunked content length:', chunkedContent.length);
 
   const prompt = `${MICRO_CARD_PROMPT}
 
@@ -149,6 +169,9 @@ ${chunkedContent}
 
 Generate micro-learning cards. Remember: MORE cards with LESS content each. Target 80-100 words per card.`;
 
+  console.log('🌟 [AIService.generateWithGemini] Calling Gemini API...');
+  console.log('🌟 [AIService.generateWithGemini] Model:', GEMINI_LIMITS.model);
+  
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_LIMITS.model}:generateContent?key=${config.ai.geminiKey}`,
     {
@@ -165,9 +188,11 @@ Generate micro-learning cards. Remember: MORE cards with LESS content each. Targ
     }
   );
 
+  console.log('🌟 [AIService.generateWithGemini] Gemini response status:', response.status);
+
   if (!response.ok) {
     const error = await response.text();
-    console.error('Gemini API error:', error);
+    console.error('🌟 [AIService.generateWithGemini] Gemini API error:', error);
     throw new Error(`Gemini API error: ${response.status}`);
   }
 
@@ -178,14 +203,24 @@ Generate micro-learning cards. Remember: MORE cards with LESS content each. Targ
       };
     }>;
   };
+  
+  console.log('🌟 [AIService.generateWithGemini] Response has candidates:', !!data.candidates);
+  console.log('🌟 [AIService.generateWithGemini] Candidates count:', data.candidates?.length || 0);
+  
   const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  console.log('🌟 [AIService.generateWithGemini] Response text length:', responseText.length);
+  console.log('🌟 [AIService.generateWithGemini] Response preview:', responseText.slice(0, 200));
 
   try {
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    console.log('🌟 [AIService.generateWithGemini] JSON match found:', !!jsonMatch);
+    
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
+      console.log('🌟 [AIService.generateWithGemini] Parsed cards count:', parsed.cards?.length || 0);
+      
       if (parsed.cards && Array.isArray(parsed.cards)) {
-        return parsed.cards.map((card: any, index: number) => ({
+        const cards = parsed.cards.map((card: any, index: number) => ({
           headline: truncateWords(card.headline || 'Untitled', CARD_CONFIG.headlineMaxWords),
           detailParagraph: truncateWords(card.detailParagraph || '', 60),
           bulletPoints: (card.bulletPoints || [])
@@ -201,12 +236,17 @@ Generate micro-learning cards. Remember: MORE cards with LESS content each. Targ
           transitionHint: card.transitionHint || null,
           order: index,
         }));
+        
+        console.log('🌟 [AIService.generateWithGemini] Successfully generated', cards.length, 'cards');
+        return cards;
       }
     }
   } catch (parseError) {
-    console.error('Failed to parse Gemini response:', responseText);
+    console.error('🌟 [AIService.generateWithGemini] Failed to parse Gemini response:', parseError);
+    console.error('🌟 [AIService.generateWithGemini] Raw response:', responseText.slice(0, 500));
   }
 
+  console.log('🌟 [AIService.generateWithGemini] Falling back to demo cards');
   // Fallback to demo if parsing fails
   return generateDemoCards(chunks);
 }

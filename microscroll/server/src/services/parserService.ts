@@ -1,5 +1,5 @@
 import fs from 'fs/promises';
-import path from 'path';
+import { extractPDFText } from '../lib/pdfParser.js';
 
 // ===========================================
 // Text Extraction from Various File Types
@@ -7,16 +7,29 @@ import path from 'path';
 
 // Extract text from PDF
 export async function extractFromPDF(filePath: string): Promise<string> {
-  // Note: In production, use pdf-parse or pdfjs-dist
-  // For now, we'll use a simple approach with dynamic import
+  console.log('📑 [ParserService.extractFromPDF] Starting PDF extraction');
+  console.log('📑 [ParserService.extractFromPDF] File path:', filePath);
+  
   try {
-    const pdfParse = await import('pdf-parse');
-    const dataBuffer = await fs.readFile(filePath);
-    const data = await pdfParse.default(dataBuffer);
-    return data.text;
+    console.log('📑 [ParserService.extractFromPDF] Calling extractPDFText...');
+    const text = await extractPDFText(filePath);
+    console.log('📑 [ParserService.extractFromPDF] extractPDFText returned:', text?.length || 0, 'chars');
+    
+    if (!text || text.trim().length < 10) {
+      console.error('📑 [ParserService.extractFromPDF] Not enough text extracted:', text?.trim().length || 0, 'chars');
+      throw new Error('Could not extract text from PDF. The file may be scanned or image-based.');
+    }
+    
+    console.log('📑 [ParserService.extractFromPDF] Success! Text preview:', text.slice(0, 100));
+    return text;
   } catch (error) {
-    console.error('PDF parsing error:', error);
-    throw new Error('Failed to parse PDF file');
+    console.error('📑 [ParserService.extractFromPDF] PDF parsing error:', error);
+    console.error('📑 [ParserService.extractFromPDF] Error stack:', error instanceof Error ? error.stack : 'No stack');
+    throw new Error(
+      error instanceof Error 
+        ? `Failed to parse PDF: ${error.message}` 
+        : 'Failed to parse PDF file'
+    );
   }
 }
 
@@ -81,18 +94,36 @@ export async function extractText(
   filePath: string,
   fileType: 'pdf' | 'docx' | 'pptx' | 'txt'
 ): Promise<string> {
+  console.log('📄 [ParserService.extractText] Starting extraction');
+  console.log('📄 [ParserService.extractText] File path:', filePath);
+  console.log('📄 [ParserService.extractText] File type:', fileType);
+  
+  let result: string;
+  
   switch (fileType) {
     case 'pdf':
-      return extractFromPDF(filePath);
+      console.log('📄 [ParserService.extractText] Calling extractFromPDF...');
+      result = await extractFromPDF(filePath);
+      break;
     case 'docx':
-      return extractFromDOCX(filePath);
+      console.log('📄 [ParserService.extractText] Calling extractFromDOCX...');
+      result = await extractFromDOCX(filePath);
+      break;
     case 'pptx':
-      return extractFromPPTX(filePath);
+      console.log('📄 [ParserService.extractText] Calling extractFromPPTX...');
+      result = await extractFromPPTX(filePath);
+      break;
     case 'txt':
-      return extractFromTXT(filePath);
+      console.log('📄 [ParserService.extractText] Calling extractFromTXT...');
+      result = await extractFromTXT(filePath);
+      break;
     default:
+      console.error('📄 [ParserService.extractText] Unsupported file type:', fileType);
       throw new Error(`Unsupported file type: ${fileType}`);
   }
+  
+  console.log('📄 [ParserService.extractText] Extraction complete, chars:', result?.length || 0);
+  return result;
 }
 
 // ===========================================

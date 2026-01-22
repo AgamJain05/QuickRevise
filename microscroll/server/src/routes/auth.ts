@@ -8,6 +8,7 @@ import {
   loginSchema,
   refreshSchema,
   logoutSchema,
+  verifyOTPSchema,
 } from '../schemas/auth.js';
 
 const router = Router();
@@ -56,5 +57,34 @@ router.get(
   authenticate,
   authController.me
 );
+
+// ===========================================
+// Email Verification (OTP-based)
+// ===========================================
+
+// POST /api/auth/send-verification - Send OTP to email
+router.post(
+  '/send-verification',
+  authenticate,
+  authController.sendVerification
+);
+
+// POST /api/auth/verify-otp - Verify email with OTP code
+router.post(
+  '/verify-otp',
+  authenticate,
+  validateBody(verifyOTPSchema),
+  authController.verifyOTP
+);
+
+// ===========================================
+// Google OAuth
+// ===========================================
+
+// GET /api/auth/google - Redirect to Google OAuth
+router.get('/google', authController.googleAuth);
+
+// GET /api/auth/google/callback - Google OAuth callback
+router.get('/google/callback', authController.googleCallback);
 
 export default router;

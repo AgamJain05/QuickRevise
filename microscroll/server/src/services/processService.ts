@@ -32,10 +32,20 @@ export interface ProcessFileOptions {
 }
 
 export async function processFile(options: ProcessFileOptions) {
+  console.log('🔄 [Service.processFile] Starting...');
+  console.log('🔄 [Service.processFile] Options:', {
+    userId: options.userId,
+    filePath: options.filePath,
+    fileName: options.fileName,
+    title: options.title,
+  });
+  
   const { userId, filePath, fileName, title } = options;
   const fileType = getFileType(fileName);
+  console.log('🔄 [Service.processFile] Detected file type:', fileType);
 
   // Create processing job
+  console.log('🔄 [Service.processFile] Creating processing job...');
   const job = await prisma.processingJob.create({
     data: {
       userId,
@@ -47,14 +57,36 @@ export async function processFile(options: ProcessFileOptions) {
       fileType,
     },
   });
+  console.log('🔄 [Service.processFile] Job created with ID:', job.id);
 
   try {
     // Step 1: Parse file and extract text
     await updateJob(job.id, 'parsing', 20);
-    let text = await extractText(filePath, fileType);
+    console.log(`📂 [Service.processFile] Step 1: Parsing ${fileType.toUpperCase()} file: ${fileName}`);
+    
+    let text: string;
+    try {
+      console.log('🔄 [Service.processFile] Calling extractText...');
+      text = await extractText(filePath, fileType);
+      console.log('🔄 [Service.processFile] extractText returned:', text?.length || 0, 'chars');
+    } catch (parseError) {
+      console.error(`❌ [Service.processFile] File parsing failed for ${fileName}:`, parseError);
+      console.error('❌ [Service.processFile] Parse error stack:', parseError instanceof Error ? parseError.stack : 'No stack');
+      throw new Error(
+        parseError instanceof Error 
+          ? parseError.message 
+          : 'Failed to extract text from file'
+      );
+    }
+
+    console.log(`📝 [Service.processFile] Extracted ${text?.length || 0} characters from ${fileName}`);
+    console.log(`📝 [Service.processFile] Text preview: "${text?.slice(0, 200)}..."`)
 
     if (!text || text.trim().length < 50) {
-      throw new Error('Not enough text content extracted from file');
+      throw new Error(
+        `Not enough text content extracted from file (got ${text?.trim().length || 0} chars, need at least 50). ` +
+        'The file may be empty, scanned, or image-based.'
+      );
     }
 
     // Trim to Gemini limits
@@ -67,14 +99,19 @@ export async function processFile(options: ProcessFileOptions) {
     console.log(`📄 Processing ${fileName}: ~${text.split(/\s+/).length} words → ${expectedCards} expected cards`);
 
     // Step 2: Generate micro-learning cards with Gemini
+    console.log('🔄 [Service.processFile] Step 2: Generating cards with Gemini...');
     await updateJob(job.id, 'generating', 50);
+    
+    console.log('🔄 [Service.processFile] Calling generateCardsFromContent with title:', title || path.parse(fileName).name);
     const generatedCards = await generateCardsFromContent(text, title || path.parse(fileName).name);
+    console.log('🔄 [Service.processFile] generateCardsFromContent returned:', generatedCards?.length || 0, 'cards');
 
     if (generatedCards.length === 0) {
+      console.error('🔄 [Service.processFile] ERROR: No cards generated!');
       throw new Error('No cards generated');
     }
 
-    console.log(`✅ Generated ${generatedCards.length} micro-cards`);
+    console.log(`✅ [Service.processFile] Generated ${generatedCards.length} micro-cards`);
 
     // Step 3: Create deck and cards in database
     await updateJob(job.id, 'generating', 80);

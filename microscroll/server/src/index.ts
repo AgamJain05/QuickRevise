@@ -13,8 +13,41 @@ const app = express();
 // Security Middleware
 // ===========================================
 
-// Helmet - Security headers
-app.use(helmet());
+// Helmet - Enhanced Security Headers
+app.use(helmet({
+  // Content Security Policy
+  contentSecurityPolicy: config.isProd ? {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", config.cors.origin],
+    },
+  } : false, // Disable in development for easier debugging
+  
+  // Strict Transport Security (HTTPS only)
+  hsts: config.isProd ? {
+    maxAge: 31536000, // 1 year
+    includeSubDomains: true,
+    preload: true,
+  } : false,
+  
+  // Prevent clickjacking
+  frameguard: { action: 'deny' },
+  
+  // Prevent MIME sniffing
+  noSniff: true,
+  
+  // XSS Protection
+  xssFilter: true,
+  
+  // Hide X-Powered-By header
+  hidePoweredBy: true,
+  
+  // Referrer Policy
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+}));
 
 // CORS - Cross-Origin Resource Sharing
 app.use(cors({

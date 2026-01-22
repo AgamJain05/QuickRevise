@@ -8,7 +8,7 @@ interface OnboardingProps {
 
 const slides = [
   {
-    title: 'Scroll to Learn',
+    title: 'Scroll and Learn',
     description: 'Turn your heavy notes into bite-sized cards you can master in seconds.',
     image: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=600&q=80',
     icon: 'bolt',
@@ -16,7 +16,7 @@ const slides = [
     cardTitle: "Newton's Second Law of Motion",
   },
   {
-    title: 'Learn Smarter',
+    title: 'Learn Smarter and Faster',
     description: 'AI-powered active recall with ghost words and ELI5 mode to boost retention.',
     image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600&q=80',
     icon: 'psychology',
@@ -41,8 +41,9 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     if (currentSlide < slides.length - 1) {
       setCurrentSlide(currentSlide + 1)
     } else {
+      // Navigate to auth page for login/register
       onComplete()
-      navigate('/')
+      navigate('/auth')
     }
   }
 
@@ -155,9 +156,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         {/* Skip button */}
         {currentSlide < slides.length - 1 && (
           <button
-            onClick={() => {
+            onClick={() => {navigate('/auth')
               onComplete()
-              navigate('/')
             }}
             className="text-slate-400 text-sm font-medium hover:text-slate-600 transition-colors"
           >

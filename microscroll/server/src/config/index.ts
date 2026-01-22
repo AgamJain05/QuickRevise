@@ -28,6 +28,14 @@ const envSchema = z.object({
   // File Upload
   MAX_FILE_SIZE: z.string().default('10485760'),
   UPLOAD_DIR: z.string().default('./uploads'),
+  
+  // Email Service (Resend)
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().default('MicroScroll <noreply@microscroll.app>'),
+  
+  // Google OAuth
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
 });
 
 // Parse and validate environment variables
@@ -80,6 +88,16 @@ export const config = {
   upload: {
     maxFileSize: parseInt(env.MAX_FILE_SIZE, 10),
     uploadDir: env.UPLOAD_DIR,
+  },
+  
+  email: {
+    resendApiKey: env.RESEND_API_KEY,
+    fromAddress: env.EMAIL_FROM,
+  },
+  
+  google: {
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
   },
 } as const;
 

@@ -14,54 +14,59 @@
 
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { api, UserAnalytics, UserSettings as ApiUserSettings, DueCard } from '../lib/api'
+import Card from '../components/Card'
+
+// Fallback to local storage for offline mode
 import { 
   getStudyStats, 
   getAllDecks, 
   getCardsForReview,
-  getSettings,
-  saveSettings,
-  exportData,
+  getSettings as getLocalSettings,
+  saveSettings as saveLocalSettings,
+  exportData as exportLocalData,
   clearAllData,
   type Deck,
-  type CardProgress,
-  type UserSettings 
 } from '../lib/storage'
-import Card from '../components/Card'
 
 interface WeeklyData {
   day: string
   cards: number
-  accuracy: number
 }
 
 export default function Profile() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
-  const [stats, setStats] = useState({
+  const [isOnline, setIsOnline] = useState(api.auth.isAuthenticated())
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  
+  // Stats from API or local
+  const [analytics, setAnalytics] = useState<UserAnalytics | null>(null)
+  const [localStats, setLocalStats] = useState({
     totalDecks: 0,
     totalCards: 0,
     cardsReviewed: 0,
     averageMastery: 0,
     streak: 0,
   })
+  
   const [decks, setDecks] = useState<Deck[]>([])
-  const [dueCards, setDueCards] = useState<CardProgress[]>([])
-  const [settings, setSettings] = useState<UserSettings>({
+  const [dueCards, setDueCards] = useState<DueCard[]>([])
+  const [dueCount, setDueCount] = useState(0)
+  
+  const [settings, setSettings] = useState<ApiUserSettings>({
     theme: 'system',
-    aiProvider: 'demo',
     dailyGoal: 20,
     soundEnabled: true,
+    hapticsEnabled: true,
+    autoPlayEnabled: false,
+    currentStreak: 0,
+    longestStreak: 0,
+    lastActiveDate: null,
   })
+  
   const [showSettings, setShowSettings] = useState(false)
-  const [weeklyData] = useState<WeeklyData[]>([
-    { day: 'Mon', cards: 12, accuracy: 85 },
-    { day: 'Tue', cards: 18, accuracy: 90 },
-    { day: 'Wed', cards: 8, accuracy: 75 },
-    { day: 'Thu', cards: 25, accuracy: 92 },
-    { day: 'Fri', cards: 15, accuracy: 88 },
-    { day: 'Sat', cards: 20, accuracy: 95 },
-    { day: 'Sun', cards: 10, accuracy: 80 },
-  ])
+  const [weeklyData, setWeeklyData] = useState<WeeklyData[]>([])
 
   useEffect(() => {
     loadData()
@@ -69,19 +74,85 @@ export default function Profile() {
 
   const loadData = async () => {
     try {
-      const [statsData, decksData, dueCardsData, settingsData] = await Promise.all([
-        getStudyStats(),
-        getAllDecks(),
-        getCardsForReview(10),
-        getSettings(),
-      ])
-      
-      setStats(statsData)
-      setDecks(decksData)
-      setDueCards(dueCardsData)
-      setSettings(settingsData)
+      if (api.auth.isAuthenticated()) {
+        // Load from API
+        setIsOnline(true)
+        const [analyticsData, settingsData, dueCardsData, decksResult] = await Promise.all([
+          api.analytics.get(),
+          api.settings.get(),
+          api.study.getDueCards({ limit: 10 }),
+          api.decks.list({ limit: 10 }),
+        ])
+        
+        setAnalytics(analyticsData)
+        setSettings(settingsData)
+        setDueCards(dueCardsData)
+        setDueCount(analyticsData.dueForReview)
+        
+        // Map API decks to local format for display
+        setDecks(decksResult.items.map(d => ({
+          id: d.id,
+          title: d.title,
+          description: d.description || '',
+          emoji: d.emoji,
+          cards: [],
+          createdAt: new Date(d.createdAt),
+          updatedAt: new Date(d.updatedAt),
+        })))
+        
+        // Build weekly data from API
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+        const today = new Date().getDay()
+        const weekly: WeeklyData[] = analyticsData.weeklyActivity.map((cards, i) => ({
+          day: days[(today - 6 + i + 7) % 7],
+          cards,
+        }))
+        setWeeklyData(weekly)
+      } else {
+        // Fallback to local storage
+        setIsOnline(false)
+        const [statsData, decksData, dueCardsData, settingsData] = await Promise.all([
+          getStudyStats(),
+          getAllDecks(),
+          getCardsForReview(10),
+          getLocalSettings(),
+        ])
+        
+        setLocalStats(statsData)
+        setDecks(decksData)
+        setDueCount(dueCardsData.length)
+        setSettings({
+          theme: settingsData.theme,
+          dailyGoal: settingsData.dailyGoal,
+          soundEnabled: settingsData.soundEnabled,
+          hapticsEnabled: true,
+          autoPlayEnabled: false,
+          currentStreak: statsData.streak,
+          longestStreak: statsData.streak,
+          lastActiveDate: null,
+        })
+        
+        // Demo weekly data
+        setWeeklyData([
+          { day: 'Mon', cards: 12 },
+          { day: 'Tue', cards: 18 },
+          { day: 'Wed', cards: 8 },
+          { day: 'Thu', cards: 25 },
+          { day: 'Fri', cards: 15 },
+          { day: 'Sat', cards: 20 },
+          { day: 'Sun', cards: 10 },
+        ])
+      }
     } catch (err) {
       console.error('Failed to load profile data:', err)
+      // Fallback to local on error
+      setIsOnline(false)
+      try {
+        const statsData = await getStudyStats()
+        setLocalStats(statsData)
+      } catch {
+        // Ignore
+      }
     } finally {
       setLoading(false)
     }
@@ -89,14 +160,24 @@ export default function Profile() {
 
   const handleExportData = async () => {
     try {
-      const data = await exportData()
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `microscroll-backup-${new Date().toISOString().split('T')[0]}.json`
-      a.click()
-      URL.revokeObjectURL(url)
+      if (isOnline) {
+        const blob = await api.settings.export()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `microscroll-backup-${new Date().toISOString().split('T')[0]}.json`
+        a.click()
+        URL.revokeObjectURL(url)
+      } else {
+        const data = await exportLocalData()
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `microscroll-backup-${new Date().toISOString().split('T')[0]}.json`
+        a.click()
+        URL.revokeObjectURL(url)
+      }
     } catch (err) {
       console.error('Export failed:', err)
     }
@@ -107,6 +188,9 @@ export default function Profile() {
     if (!confirm('Really? All your decks and progress will be permanently deleted.')) return
     
     try {
+      if (isOnline) {
+        await api.settings.deleteAllData()
+      }
       await clearAllData()
       localStorage.removeItem('microscroll_onboarded')
       window.location.href = '/'
@@ -115,13 +199,44 @@ export default function Profile() {
     }
   }
 
-  const handleSaveSettings = async (newSettings: UserSettings) => {
+  const handleSaveSettings = async (newSettings: Partial<ApiUserSettings>) => {
     try {
-      await saveSettings(newSettings)
-      setSettings(newSettings)
+      const updated = { ...settings, ...newSettings }
+      
+      if (isOnline) {
+        await api.settings.update({
+          theme: updated.theme as 'light' | 'dark' | 'system',
+          dailyGoal: updated.dailyGoal,
+          soundEnabled: updated.soundEnabled,
+          hapticsEnabled: updated.hapticsEnabled,
+          autoPlayEnabled: updated.autoPlayEnabled,
+        })
+      } else {
+        await saveLocalSettings({
+          theme: updated.theme,
+          aiProvider: 'demo',
+          dailyGoal: updated.dailyGoal,
+          soundEnabled: updated.soundEnabled,
+        })
+      }
+      
+      setSettings(updated)
     } catch (err) {
       console.error('Failed to save settings:', err)
     }
+  }
+
+  const handleLogout = async () => {
+    try {
+      await api.auth.logout()
+    } catch (err) {
+      console.error('Logout failed:', err)
+      api.tokens.clear()
+    }
+    
+    // Clear onboarding flag so user sees "Get Started" page
+    localStorage.removeItem('microscroll_onboarded')
+    window.location.href = '/onboarding'
   }
 
   const getStreakEmoji = (streak: number) => {
@@ -150,11 +265,50 @@ export default function Profile() {
     )
   }
 
+  // Use API stats if online, otherwise local
+  const stats = analytics ? {
+    totalDecks: analytics.totalDecks,
+    totalCards: analytics.totalCards,
+    cardsReviewed: analytics.totalReviewed,
+    averageMastery: analytics.masteryPercent,
+    streak: analytics.streak,
+    todayStudied: analytics.todayStudied,
+    dailyGoal: analytics.dailyGoal,
+  } : {
+    ...localStats,
+    todayStudied: 0,
+    dailyGoal: settings.dailyGoal,
+  }
+
   const masteryLevel = getMasteryLevel(stats.averageMastery)
   const maxCards = Math.max(...weeklyData.map(d => d.cards), 1)
 
   return (
     <div className="pb-6">
+      {/* Logout Confirmation Toast */}
+      {showLogoutConfirm && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-4 rounded-2xl shadow-lg bg-white border border-slate-200 animate-fade-in-up max-w-sm w-[calc(100%-2rem)]">
+          <p className="font-medium text-center mb-4 text-slate-800">Are you sure you want to log out?</p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowLogoutConfirm(false)}
+              className="flex-1 py-2 px-4 rounded-lg bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                setShowLogoutConfirm(false)
+                handleLogout()
+              }}
+              className="flex-1 py-2 px-4 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 transition-colors"
+            >
+              Log Out
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="px-5 pt-6 pb-4 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-slate-900">Profile & Stats</h1>
@@ -168,6 +322,16 @@ export default function Profile() {
         </button>
       </header>
 
+      {/* Online/Offline indicator */}
+      {!isOnline && (
+        <div className="px-5 mb-4">
+          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 rounded-lg text-amber-700 text-sm">
+            <span className="material-symbols-outlined text-[18px]">cloud_off</span>
+            <span>Offline mode - data stored locally</span>
+          </div>
+        </div>
+      )}
+
       {/* Settings Panel */}
       {showSettings && (
         <div className="px-5 mb-6 animate-fade-in">
@@ -180,7 +344,7 @@ export default function Profile() {
                 <span className="text-slate-700">Theme</span>
                 <select
                   value={settings.theme}
-                  onChange={(e) => handleSaveSettings({ ...settings, theme: e.target.value as UserSettings['theme'] })}
+                  onChange={(e) => handleSaveSettings({ theme: e.target.value as 'light' | 'dark' | 'system' })}
                   className="px-3 py-2 rounded-lg border border-slate-200 text-sm"
                 >
                   <option value="light">Light</option>
@@ -193,7 +357,7 @@ export default function Profile() {
               <div className="flex items-center justify-between">
                 <span className="text-slate-700">Sound Effects</span>
                 <button
-                  onClick={() => handleSaveSettings({ ...settings, soundEnabled: !settings.soundEnabled })}
+                  onClick={() => handleSaveSettings({ soundEnabled: !settings.soundEnabled })}
                   className={`w-12 h-6 rounded-full transition-colors ${
                     settings.soundEnabled ? 'bg-primary' : 'bg-slate-300'
                   }`}
@@ -203,32 +367,34 @@ export default function Profile() {
                   }`} />
                 </button>
               </div>
+
+              {/* Haptics */}
+              <div className="flex items-center justify-between">
+                <span className="text-slate-700">Haptic Feedback</span>
+                <button
+                  onClick={() => handleSaveSettings({ hapticsEnabled: !settings.hapticsEnabled })}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    settings.hapticsEnabled ? 'bg-primary' : 'bg-slate-300'
+                  }`}
+                >
+                  <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    settings.hapticsEnabled ? 'translate-x-6' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
               
               {/* Daily Goal */}
               <div className="flex items-center justify-between">
                 <span className="text-slate-700">Daily Goal</span>
                 <select
                   value={settings.dailyGoal}
-                  onChange={(e) => handleSaveSettings({ ...settings, dailyGoal: parseInt(e.target.value) })}
+                  onChange={(e) => handleSaveSettings({ dailyGoal: parseInt(e.target.value) })}
                   className="px-3 py-2 rounded-lg border border-slate-200 text-sm"
                 >
                   <option value={10}>10 cards</option>
                   <option value={20}>20 cards</option>
                   <option value={30}>30 cards</option>
                   <option value={50}>50 cards</option>
-                </select>
-              </div>
-              
-              {/* AI Provider */}
-              <div className="flex items-center justify-between">
-                <span className="text-slate-700">AI Provider</span>
-                <select
-                  value={settings.aiProvider}
-                  onChange={(e) => handleSaveSettings({ ...settings, aiProvider: e.target.value as UserSettings['aiProvider'] })}
-                  className="px-3 py-2 rounded-lg border border-slate-200 text-sm"
-                >
-                  <option value="demo">Demo (Offline)</option>
-                  <option value="gemini">Google Gemini</option>
                 </select>
               </div>
             </div>
@@ -240,6 +406,16 @@ export default function Profile() {
               >
                 Export Data
               </button>
+              
+              {isOnline && (
+                <button
+                  onClick={() => setShowLogoutConfirm(true)}
+                  className="w-full py-2 text-slate-600 font-semibold hover:bg-slate-50 rounded-lg transition-colors"
+                >
+                  Log Out
+                </button>
+              )}
+              
               <button
                 onClick={handleClearData}
                 className="w-full py-2 text-red-500 font-semibold hover:bg-red-50 rounded-lg transition-colors"
@@ -268,6 +444,22 @@ export default function Profile() {
             </div>
             <p className="text-orange-700 text-sm font-medium mt-1">Day Streak</p>
           </div>
+
+          {/* Daily progress */}
+          {stats.dailyGoal > 0 && (
+            <div className="mt-4">
+              <div className="flex justify-between text-sm mb-1">
+                <span className="text-slate-600">Today's Progress</span>
+                <span className="font-semibold text-slate-900">{stats.todayStudied}/{stats.dailyGoal}</span>
+              </div>
+              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-primary rounded-full transition-all"
+                  style={{ width: `${Math.min(100, (stats.todayStudied / stats.dailyGoal) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
         </Card>
       </div>
 
@@ -317,14 +509,9 @@ export default function Profile() {
             {weeklyData.map((data, index) => (
               <div key={index} className="flex-1 flex flex-col items-center">
                 <div 
-                  className="w-full bg-primary/20 rounded-t-lg transition-all hover:bg-primary/30"
+                  className="w-full bg-primary rounded-t-lg transition-all hover:opacity-80"
                   style={{ height: `${(data.cards / maxCards) * 100}%`, minHeight: '4px' }}
-                >
-                  <div 
-                    className="w-full bg-primary rounded-t-lg"
-                    style={{ height: `${data.accuracy}%` }}
-                  />
-                </div>
+                />
                 <span className="text-xs text-slate-500 mt-2">{data.day}</span>
               </div>
             ))}
@@ -333,19 +520,16 @@ export default function Profile() {
             <span className="text-slate-500">
               Total: <span className="font-semibold text-slate-700">{weeklyData.reduce((sum, d) => sum + d.cards, 0)} cards</span>
             </span>
-            <span className="text-slate-500">
-              Avg: <span className="font-semibold text-slate-700">{Math.round(weeklyData.reduce((sum, d) => sum + d.accuracy, 0) / 7)}% accuracy</span>
-            </span>
           </div>
         </Card>
       </div>
 
       {/* Due for review */}
-      {dueCards.length > 0 && (
+      {dueCount > 0 && (
         <div className="px-5 mb-6">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-bold text-slate-900">Due for Review</h3>
-            <span className="text-sm text-primary font-semibold">{dueCards.length} cards</span>
+            <span className="text-sm text-primary font-semibold">{dueCount} cards</span>
           </div>
           <Card variant="elevated" className="bg-amber-50 border border-amber-100">
             <div className="flex items-center gap-4">
@@ -354,12 +538,14 @@ export default function Profile() {
               </div>
               <div className="flex-1">
                 <p className="font-semibold text-slate-900">Review needed!</p>
-                <p className="text-sm text-slate-600">{dueCards.length} cards are due for spaced repetition review</p>
+                <p className="text-sm text-slate-600">{dueCount} cards are due for spaced repetition review</p>
               </div>
               <button
                 onClick={() => {
-                  // Find the deck with most due cards and navigate there
-                  if (decks.length > 0) {
+                  // Navigate to first due card's deck or first deck
+                  if (dueCards.length > 0 && dueCards[0].deck) {
+                    navigate(`/study/${dueCards[0].deck.id}`)
+                  } else if (decks.length > 0) {
                     navigate(`/study/${decks[0].id}`)
                   }
                 }}
