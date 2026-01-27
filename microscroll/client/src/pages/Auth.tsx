@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 
 type AuthMode = 'login' | 'register' | 'verify-otp'
@@ -12,7 +12,6 @@ type AuthMode = 'login' | 'register' | 'verify-otp'
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
 export default function Auth() {
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [mode, setMode] = useState<AuthMode>('login')
   const [email, setEmail] = useState('')
@@ -185,11 +184,6 @@ export default function Auth() {
     setMode(mode === 'login' ? 'register' : 'login')
     setError(null)
     setOtp(['', '', '', '', '', ''])
-  }
-
-  const handleSkip = () => {
-    localStorage.setItem('microscroll_onboarded', 'true')
-    navigate('/')
   }
 
   // OTP Verification Screen
