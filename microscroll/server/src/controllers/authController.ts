@@ -158,6 +158,14 @@ export async function verifyOTP(
 
 import { config } from '../config/index.js';
 
+// Helper function to get the correct base URL (handles proxy headers)
+function getBaseUrl(req: Request): string {
+  // Check for proxy headers (used by Render, Heroku, etc.)
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+  return `${protocol}://${host}`;
+}
+
 // GET /api/auth/google - Redirect to Google OAuth
 export async function googleAuth(
   req: Request,
@@ -174,7 +182,7 @@ export async function googleAuth(
 
   const params = new URLSearchParams({
     client_id: config.google.clientId,
-    redirect_uri: `${req.protocol}://${req.get('host')}/api/auth/google/callback`,
+    redirect_uri: `${getBaseUrl(req)}/api/auth/google/callback`,
     response_type: 'code',
     scope: 'openid email profile',
     access_type: 'offline',
@@ -211,7 +219,7 @@ export async function googleCallback(
         code,
         client_id: config.google.clientId,
         client_secret: config.google.clientSecret,
-        redirect_uri: `${req.protocol}://${req.get('host')}/api/auth/google/callback`,
+        redirect_uri: `${getBaseUrl(req)}/api/auth/google/callback`,
         grant_type: 'authorization_code',
       }),
     });
