@@ -460,17 +460,20 @@ export default function Auth() {
             </button>
           </div>
 
+          {/* Recruiter/User friendly message */}
           <div className="mt-8 pt-6 border-t border-slate-200">
-            <button
-              onClick={handleSkip}
-              className="w-full py-3 text-slate-600 font-medium hover:text-slate-900 transition-colors flex items-center justify-center gap-2"
-            >
-              <span className="material-symbols-outlined text-[18px]">cloud_off</span>
-              <span>Continue without account</span>
-            </button>
-            <p className="text-xs text-slate-400 text-center mt-2">
-              Data will be stored locally on this device only
-            </p>
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <span className="material-symbols-outlined text-blue-500 text-[20px]">verified_user</span>
+                <span className="font-medium text-blue-700">Recommended: Google Sign-In</span>
+              </div>
+              <p className="text-sm text-blue-600 mb-2">
+                Your data is safe with us. We only access your basic profile info.
+              </p>
+              <p className="text-xs text-slate-500">
+                ⚠️ Email/OTP authentication may experience delays. For the best experience, please use Google Sign-In.
+              </p>
+            </div>
           </div>
         </div>
       </main>
