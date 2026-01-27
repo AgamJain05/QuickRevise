@@ -1,15 +1,41 @@
 // API Client for MicroScroll Backend
 // Handles authentication, requests, and error handling
-// import 'dotenv/config';
 
 const API_BASE = (import.meta as any).env.VITE_API_URL || 
                  ((import.meta as any).env.DEV ? 'http://localhost:3001/api' : '/api');
-console.log('🔧 API_BASE configured as:', API_BASE);
-console.log('🔧 VITE_API_URL:', (import.meta as any).env.VITE_API_URL);
-console.log('🔧 DEV mode:', (import.meta as any).env.DEV);
+
+// Only log in development
+const isDev = (import.meta as any).env.DEV;
+const log = isDev ? console.log : () => {};
+
+log('🔧 API_BASE configured as:', API_BASE);
+
 // Token storage keys
 const ACCESS_TOKEN_KEY = 'microscroll_access_token';
 const REFRESH_TOKEN_KEY = 'microscroll_refresh_token';
+
+// ===========================================
+// Simple Cache for API responses
+// ===========================================
+const cache = new Map<string, { data: unknown; timestamp: number }>();
+const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
+
+function getCached<T>(key: string): T | null {
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.data as T;
+  }
+  cache.delete(key);
+  return null;
+}
+
+function setCache(key: string, data: unknown): void {
+  cache.set(key, { data, timestamp: Date.now() });
+}
+
+export function clearCache(): void {
+  cache.clear();
+}
 
 // ===========================================
 // Types
@@ -111,10 +137,9 @@ async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  console.log('🌐 [API] Request:', options.method || 'GET', endpoint);
+  log('🌐 [API] Request:', options.method || 'GET', endpoint);
   
   const { accessToken } = tokens.get();
-  console.log('🌐 [API] Access token:', accessToken ? 'EXISTS' : 'MISSING');
   
   const headers: HeadersInit = {
     ...options.headers,
@@ -123,27 +148,22 @@ async function request<T>(
   // Don't set Content-Type for FormData
   if (!(options.body instanceof FormData)) {
     (headers as Record<string, string>)['Content-Type'] = 'application/json';
-  } else {
-    console.log('🌐 [API] FormData detected, not setting Content-Type');
   }
   
   if (accessToken) {
     (headers as Record<string, string>)['Authorization'] = `Bearer ${accessToken}`;
   }
   
-  console.log('🌐 [API] Making fetch to:', `${API_BASE}${endpoint}`);
   let response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers,
   });
-  console.log('🌐 [API] Response status:', response.status, response.statusText);
   
   // Handle 401 - try to refresh token
   if (response.status === 401) {
-    console.log('🌐 [API] 401 received, attempting token refresh...');
+    log('🌐 [API] 401 received, attempting token refresh...');
     const refreshed = await refreshAccessToken();
     if (refreshed) {
-      console.log('🌐 [API] Token refreshed, retrying request...');
       // Retry with new token
       const newAccessToken = tokens.get().accessToken;
       (headers as Record<string, string>)['Authorization'] = `Bearer ${newAccessToken}`;
@@ -151,7 +171,6 @@ async function request<T>(
         ...options,
         headers,
       });
-      console.log('🌐 [API] Retry response status:', response.status);
     } else {
       console.log('🌐 [API] Token refresh failed, redirecting...');
       // Refresh failed, clear tokens
@@ -242,14 +261,21 @@ export const auth = {
       }
     }
     tokens.clear();
+    clearCache(); // Clear cache on logout
   },
   
   me: async (): Promise<User | null> => {
     const { accessToken } = tokens.get();
     if (!accessToken) return null;
     
+    // Check cache first
+    const cacheKey = 'user-me';
+    const cached = getCached<User>(cacheKey);
+    if (cached) return cached;
+    
     try {
       const result = await request<{ user: User }>('/auth/me');
+      setCache(cacheKey, result.user);
       return result.user;
     } catch {
       return null;
@@ -316,11 +342,25 @@ export const decks = {
     if (query.sortOrder) params.set('sortOrder', query.sortOrder);
     
     const queryString = params.toString();
-    return request<PaginatedResult<Deck>>(`/decks${queryString ? `?${queryString}` : ''}`);
+    const cacheKey = `decks-list-${queryString}`;
+    
+    // Check cache first
+    const cached = getCached<PaginatedResult<Deck>>(cacheKey);
+    if (cached) return cached;
+    
+    const result = await request<PaginatedResult<Deck>>(`/decks${queryString ? `?${queryString}` : ''}`);
+    setCache(cacheKey, result);
+    return result;
   },
   
   get: async (id: string): Promise<{ deck: Deck & { cards: Card[] } }> => {
-    return request<{ deck: Deck & { cards: Card[] } }>(`/decks/${id}`);
+    const cacheKey = `deck-${id}`;
+    const cached = getCached<{ deck: Deck & { cards: Card[] } }>(cacheKey);
+    if (cached) return cached;
+    
+    const result = await request<{ deck: Deck & { cards: Card[] } }>(`/decks/${id}`);
+    setCache(cacheKey, result);
+    return result;
   },
   
   create: async (data: CreateDeckInput): Promise<{ deck: Deck }> => {
@@ -518,15 +558,33 @@ export interface DeckAnalytics {
 
 export const analytics = {
   get: async (): Promise<UserAnalytics> => {
-    return request<UserAnalytics>('/analytics');
+    const cacheKey = 'analytics-user';
+    const cached = getCached<UserAnalytics>(cacheKey);
+    if (cached) return cached;
+    
+    const result = await request<UserAnalytics>('/analytics');
+    setCache(cacheKey, result);
+    return result;
   },
   
   getWeekly: async (): Promise<WeeklyBreakdown[]> => {
-    return request<WeeklyBreakdown[]>('/analytics/weekly');
+    const cacheKey = 'analytics-weekly';
+    const cached = getCached<WeeklyBreakdown[]>(cacheKey);
+    if (cached) return cached;
+    
+    const result = await request<WeeklyBreakdown[]>('/analytics/weekly');
+    setCache(cacheKey, result);
+    return result;
   },
   
   getDeck: async (deckId: string): Promise<DeckAnalytics> => {
-    return request<DeckAnalytics>(`/analytics/deck/${deckId}`);
+    const cacheKey = `analytics-deck-${deckId}`;
+    const cached = getCached<DeckAnalytics>(cacheKey);
+    if (cached) return cached;
+    
+    const result = await request<DeckAnalytics>(`/analytics/deck/${deckId}`);
+    setCache(cacheKey, result);
+    return result;
   },
 };
 

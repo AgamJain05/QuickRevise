@@ -1,20 +1,38 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { initDB } from './lib/storage'
 import { api } from './lib/api'
-import Onboarding from './pages/Onboarding'
-import Auth from './pages/Auth'
-import AuthCallback from './pages/AuthCallback'
-import Create from './pages/Create'
-import Processing from './pages/Processing'
-import Home from './pages/Home'
-import Study from './pages/Study'
-import Library from './pages/Library'
-import Profile from './pages/Profile'
-import SpeedRevision from './pages/SpeedRevision'
-import DeckEditor from './pages/DeckEditor'
-import Membership from './pages/Membership'
 import Layout from './components/Layout'
+
+// Lazy load pages for better performance
+const Onboarding = lazy(() => import('./pages/Onboarding'))
+const Auth = lazy(() => import('./pages/Auth'))
+const AuthCallback = lazy(() => import('./pages/AuthCallback'))
+const Create = lazy(() => import('./pages/Create'))
+const Processing = lazy(() => import('./pages/Processing'))
+const Home = lazy(() => import('./pages/Home'))
+const Study = lazy(() => import('./pages/Study'))
+const Library = lazy(() => import('./pages/Library'))
+const Profile = lazy(() => import('./pages/Profile'))
+const SpeedRevision = lazy(() => import('./pages/SpeedRevision'))
+const DeckEditor = lazy(() => import('./pages/DeckEditor'))
+const Membership = lazy(() => import('./pages/Membership'))
+
+// Page loader component
+function PageLoader() {
+  return (
+    <div className="min-h-dvh bg-background-light flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-primary/10 flex items-center justify-center">
+          <span className="material-symbols-outlined text-primary animate-spin">
+            progress_activity
+          </span>
+        </div>
+        <p className="text-slate-400 text-sm">Loading...</p>
+      </div>
+    </div>
+  )
+}
 
 // Protected route wrapper - redirects to auth if not logged in
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -43,32 +61,22 @@ function App() {
 
   // Show loading while DB initializes
   if (!dbReady) {
-    return (
-      <div className="min-h-dvh bg-background-light flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-primary/10 flex items-center justify-center">
-            <span className="material-symbols-outlined text-primary animate-spin-slow">
-              progress_activity
-            </span>
-          </div>
-          <p className="text-slate-400 text-sm">Loading...</p>
-        </div>
-      </div>
-    )
+    return <PageLoader />
   }
 
   return (
     <div className="min-h-dvh bg-background-light">
-      <Routes>
-        {/* Onboarding flow */}
-        <Route 
-          path="/onboarding" 
-          element={
-            hasOnboarded 
-              ? (isAuthenticated ? <Navigate to="/" replace /> : <Navigate to="/auth" replace />)
-              : <Onboarding onComplete={completeOnboarding} />
-          } 
-        />
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          {/* Onboarding flow */}
+          <Route 
+            path="/onboarding" 
+            element={
+              hasOnboarded 
+                ? (isAuthenticated ? <Navigate to="/" replace /> : <Navigate to="/auth" replace />)
+                : <Onboarding onComplete={completeOnboarding} />
+            } 
+          />
         
         {/* Authentication - redirect to home if already logged in */}
         <Route 
@@ -111,6 +119,7 @@ function App() {
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </div>
   )
 }
