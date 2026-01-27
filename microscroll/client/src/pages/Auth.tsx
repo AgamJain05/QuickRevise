@@ -8,8 +8,8 @@ import { api } from '../lib/api'
 
 type AuthMode = 'login' | 'register' | 'verify-otp'
 
-// API base URL for Google OAuth
-const API_BASE = '/api'
+// API base URL for Google OAuth - must use direct backend URL for OAuth redirects
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
 export default function Auth() {
   const navigate = useNavigate()
