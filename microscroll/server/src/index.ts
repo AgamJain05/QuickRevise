@@ -8,6 +8,7 @@ import routes from './routes/index.js';
 
 // Create Express app
 const app = express();
+app.set('trust proxy', true);
 
 // ===========================================
 // Security Middleware
