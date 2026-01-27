@@ -4,7 +4,9 @@
 
 const API_BASE = (import.meta as any).env.VITE_API_URL || 
                  ((import.meta as any).env.DEV ? 'http://localhost:3001/api' : '/api');
-
+console.log('🔧 API_BASE configured as:', API_BASE);
+console.log('🔧 VITE_API_URL:', (import.meta as any).env.VITE_API_URL);
+console.log('🔧 DEV mode:', (import.meta as any).env.DEV);
 // Token storage keys
 const ACCESS_TOKEN_KEY = 'microscroll_access_token';
 const REFRESH_TOKEN_KEY = 'microscroll_refresh_token';
