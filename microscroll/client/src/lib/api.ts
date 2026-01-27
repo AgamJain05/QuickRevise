@@ -1,7 +1,9 @@
 // API Client for MicroScroll Backend
 // Handles authentication, requests, and error handling
+// import 'dotenv/config';
 
-const API_BASE = '/api';
+const API_BASE = (import.meta as any).env.VITE_API_URL || 
+                 ((import.meta as any).env.DEV ? 'http://localhost:3001/api' : '/api');
 
 // Token storage keys
 const ACCESS_TOKEN_KEY = 'microscroll_access_token';
