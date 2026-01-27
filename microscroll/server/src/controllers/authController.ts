@@ -180,9 +180,21 @@ export async function googleAuth(
     return;
   }
 
+  const redirectUri = `${getBaseUrl(req)}/api/auth/google/callback`;
+  
+  // DEBUG LOGGING
+  console.log('🔍 OAuth Debug - googleAuth:', {
+    protocol: req.protocol,
+    'x-forwarded-proto': req.headers['x-forwarded-proto'],
+    host: req.get('host'),
+    'x-forwarded-host': req.headers['x-forwarded-host'],
+    generatedRedirectUri: redirectUri,
+    clientId: config.google.clientId?.substring(0, 20) + '...',
+  });
+
   const params = new URLSearchParams({
     client_id: config.google.clientId,
-    redirect_uri: `${getBaseUrl(req)}/api/auth/google/callback`,
+    redirect_uri: redirectUri,
     response_type: 'code',
     scope: 'openid email profile',
     access_type: 'offline',
@@ -201,12 +213,24 @@ export async function googleCallback(
   try {
     const { code } = req.query;
 
+    // DEBUG LOGGING
+    console.log('🔍 OAuth Debug - googleCallback:', {
+      hasCode: !!code,
+      protocol: req.protocol,
+      'x-forwarded-proto': req.headers['x-forwarded-proto'],
+      host: req.get('host'),
+      'x-forwarded-host': req.headers['x-forwarded-host'],
+      generatedRedirectUri: `${getBaseUrl(req)}/api/auth/google/callback`,
+    });
+
     if (!code || typeof code !== 'string') {
+      console.log('❌ OAuth Error: Missing code');
       res.redirect(`${config.cors.origin}/auth?error=missing_code`);
       return;
     }
 
     if (!config.google.clientId || !config.google.clientSecret) {
+      console.log('❌ OAuth Error: Not configured');
       res.redirect(`${config.cors.origin}/auth?error=not_configured`);
       return;
     }
@@ -224,9 +248,17 @@ export async function googleCallback(
       }),
     });
 
-    const tokenData = await tokenResponse.json() as { access_token?: string; id_token?: string };
+    const tokenData = await tokenResponse.json() as { access_token?: string; id_token?: string; error?: string; error_description?: string };
+
+    console.log('🔍 Token Exchange Response:', {
+      status: tokenResponse.status,
+      hasAccessToken: !!tokenData.access_token,
+      error: tokenData.error,
+      errorDescription: tokenData.error_description,
+    });
 
     if (!tokenData.access_token) {
+      console.log('❌ OAuth Error: Token exchange failed', tokenData);
       res.redirect(`${config.cors.origin}/auth?error=token_exchange_failed`);
       return;
     }
@@ -242,7 +274,14 @@ export async function googleCallback(
       picture?: string;
     };
 
+    console.log('🔍 Google User Info:', {
+      hasEmail: !!googleUser.email,
+      email: googleUser.email,
+      name: googleUser.name,
+    });
+
     if (!googleUser.email) {
+      console.log('❌ OAuth Error: No email from Google');
       res.redirect(`${config.cors.origin}/auth?error=no_email`);
       return;
     }
@@ -254,6 +293,8 @@ export async function googleCallback(
       avatarUrl: googleUser.picture || null,
     });
 
+    console.log('✅ OAuth Success: User created/found, redirecting to frontend');
+
     // Redirect to frontend with tokens
     const params = new URLSearchParams({
       accessToken: result.tokens.accessToken,
@@ -262,7 +303,7 @@ export async function googleCallback(
 
     res.redirect(`${config.cors.origin}/auth/callback?${params}`);
   } catch (error) {
-    console.error('Google OAuth error:', error);
+    console.error('❌ Google OAuth error:', error);
     res.redirect(`${config.cors.origin}/auth?error=oauth_failed`);
   }
 }
