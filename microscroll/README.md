@@ -13,6 +13,19 @@ Students struggle to retain information from lengthy documents and need engaging
 ### The Solution
 An AI-powered platform that automatically breaks down complex materials into digestible cards with active recall features, progress tracking, and gamified revision modes.
 
+
+## 📸 Application Screenshots
+
+<div align="center">
+  <img src="assets/home.png" alt="Home Dashboard" width="12%"/>
+  <img src="assets/library.png" alt="Library View" width="12%"/>
+  <img src="assets/create.png" alt="Create Deck" width="12%"/>
+  <img src="assets/generate.png" alt="Card Generation" width="12%"/>
+  <img src="assets/processing.png" alt="Processing State" width="12%"/>
+  <img src="assets/study_card.png" alt="Study Card" width="12%"/>
+  <img src="assets/profile.png" alt="Profile Stats" width="12%"/>
+</div>
+
 ---
 
 ## 💼 Key Features & Technical Implementation
